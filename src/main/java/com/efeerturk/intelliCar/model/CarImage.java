@@ -5,7 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.net.URL;
+
 import java.util.UUID;
 @Entity
 @Table(name = "carImages")
@@ -18,5 +18,7 @@ public class CarImage {
     private UUID id;
     @ManyToOne(fetch = FetchType.LAZY)
     private Car car;
-    private URL imageUrl;
+    private String imageUrl;
+    @Column(nullable = false)
+    private boolean isPrimary=false;
 }
