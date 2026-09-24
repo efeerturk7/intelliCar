@@ -1,5 +1,6 @@
 package com.efeerturk.intelliCar.model;
 
+import com.efeerturk.intelliCar.enums.CarStatus;
 import com.efeerturk.intelliCar.enums.FuelType;
 import com.efeerturk.intelliCar.enums.Transmission;
 import jakarta.persistence.*;
@@ -38,4 +39,6 @@ public class Car {
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+    @Enumerated(EnumType.STRING)
+    private CarStatus status;
 }
