@@ -37,20 +37,23 @@ public class RestCarController {
         Page<CarListResponse> responsePage = carService.getAllCars(carFilterRequest, pageable);
         return  ResponseEntity.ok(responsePage);
     }
-    @GetMapping("/getMyCars")
+    @GetMapping("/my-cars")
     public ResponseEntity<Page<CarListResponse>>getMyCars(@RequestHeader("X-User-Id")UUID sellerId, Pageable pageable){
         Page<CarListResponse> responsePage = carService.getMyCars(sellerId, pageable);
         return  ResponseEntity.ok(responsePage);
     }
-    @PostMapping("update")
+    @PutMapping("/{carId}")
     public ResponseEntity<CarDetailResponse> updateCar(@PathVariable UUID carId, @Valid @RequestBody CarUpdateRequest carUpdateRequest,@RequestHeader("X-User-Id") UUID currentUserId){
         CarDetailResponse response= carService.updateCar(carId, carUpdateRequest, currentUserId);
         return ResponseEntity.ok(response);
     }
-    @DeleteMapping("delete")
-    public void deleteCar(@PathVariable UUID carId,@RequestHeader("X-User-Id")UUID currentUserId){
-        carService.deleteCar(carId,currentUserId);
-
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteCar(
+            @PathVariable UUID id,
+            @RequestHeader("X-User-Id") UUID currentUserId
+    ) {
+        carService.deleteCar(id, currentUserId);
+        return ResponseEntity.noContent().build(); // 204 No Content
     }
 
 
