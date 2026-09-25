@@ -5,8 +5,9 @@ import com.efeerturk.intelliCar.dto.response.CarImageResponse;
 import com.efeerturk.intelliCar.service.CarImageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
@@ -16,7 +17,34 @@ import java.util.UUID;
 @RequestMapping("/intelliCar/api/v1/carImage")
 public class RestCarImageController {
     private final CarImageService carImageService;
-    public List<CarImageResponse> addImagesToCar(@Valid UUID carId, List<CarImageRequest> requestList, UUID sellerId){
+    @PostMapping("/{carId}")
+    public ResponseEntity<List<CarImageResponse>> addImagesToCar(
+            @PathVariable UUID carId,
+            @Valid @RequestBody List<CarImageRequest> requestList,
+            @RequestHeader("X-User-Id") UUID sellerId
+    ) {
+        List<CarImageResponse> responses = carImageService.addImagesToCar(carId, requestList, sellerId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(responses);
+    }
 
+
+    @PatchMapping("/{carId}/images/{imageId}/primary")
+    public ResponseEntity<Void> setPrimaryImage(
+            @PathVariable UUID carId,
+            @PathVariable UUID imageId,
+            @RequestHeader("X-User-Id") UUID sellerId
+    ) {
+        carImageService.setPrimaryImage(carId, imageId, sellerId);
+        return ResponseEntity.noContent().build();
+    }
+
+
+    @DeleteMapping("/{imageId}")
+    public ResponseEntity<Void> deleteImage(
+            @PathVariable UUID imageId,
+            @RequestHeader("X-User-Id") UUID sellerId
+    ) {
+        carImageService.deleteImage(imageId, sellerId);
+        return ResponseEntity.noContent().build();
     }
 }
