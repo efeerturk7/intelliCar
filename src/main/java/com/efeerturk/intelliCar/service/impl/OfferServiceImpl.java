@@ -20,7 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
+
 import java.util.UUID;
 
 @Service
@@ -92,7 +92,7 @@ public class OfferServiceImpl implements OfferService {
             return offerMapper.toResponse(savedOffer);
     }
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public Page<OfferResponse> getOffersForCar(UUID carId, UUID sellerId, Pageable pageable){
         Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car ID: " + carId));
         if (!dbCar.getSeller().getId().equals(sellerId)) {
@@ -102,7 +102,7 @@ public class OfferServiceImpl implements OfferService {
         return offerRepository.findByBuyerId(carId, pageable).map(offerMapper::toResponse);
     }
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public Page<OfferResponse>getMyOffers(UUID buyerId,Pageable pageable){
         return offerRepository.findByBuyerId(buyerId,pageable).map(offerMapper::toResponse);
     }

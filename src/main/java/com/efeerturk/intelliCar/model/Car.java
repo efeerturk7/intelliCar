@@ -11,6 +11,8 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 @Entity
 @Table(name = "cars")
@@ -41,4 +43,6 @@ public class Car {
     private Instant createdAt;
     @Enumerated(EnumType.STRING)
     private CarStatus status;
+    @OneToMany(mappedBy = "car",cascade = CascadeType.ALL,orphanRemoval = true)
+    List<CarImage> images=new ArrayList<>();
 }
