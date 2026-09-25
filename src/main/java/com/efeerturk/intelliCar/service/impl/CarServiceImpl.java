@@ -8,6 +8,9 @@ import com.efeerturk.intelliCar.dto.request.CarUpdateRequest;
 import com.efeerturk.intelliCar.dto.response.CarDetailResponse;
 import com.efeerturk.intelliCar.dto.response.CarListResponse;
 import com.efeerturk.intelliCar.enums.CarStatus;
+import com.efeerturk.intelliCar.enums.MessageType;
+import com.efeerturk.intelliCar.exception.BaseException;
+import com.efeerturk.intelliCar.exception.ErrorMessage;
 import com.efeerturk.intelliCar.mapper.CarMapper;
 
 import com.efeerturk.intelliCar.model.Car;
@@ -62,7 +65,7 @@ public class CarServiceImpl implements CarService  {
         return carMapper.toDetailResponse(savedCar);
             }
         @Override
-        @Transactional(readOnly = true)
+        @Transactional
         public CarDetailResponse getCarById(UUID carId) {
           Car dbCar = carRepository.findByIdWithDetails(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
 
@@ -90,7 +93,7 @@ public class CarServiceImpl implements CarService  {
             Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
             if (!dbCar.getSeller().getId().equals(currentUserId)){
                 log.error("Current user is not the same user as the current user");
-                return null;
+                throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_CAR_OPERATION,currentUserId.toString()));
             }
             dbCar.setPrice(carUpdateRequest.price());
             dbCar.setStatus(carUpdateRequest.status());
@@ -105,7 +108,7 @@ public class CarServiceImpl implements CarService  {
           Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
           if (!dbCar.getSeller().getId().equals(currentUserId)){
               log.error("Current user is not the same user as the current user");
-              throw new RuntimeException("Current user is not the same user as the current user");
+              throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_CAR_OPERATION,currentUserId.toString()));
           }
           dbCar.setStatus(CarStatus.INACTIVE);
           carRepository.save(dbCar);

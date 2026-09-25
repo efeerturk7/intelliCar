@@ -3,7 +3,10 @@ package com.efeerturk.intelliCar.service.impl;
 import com.efeerturk.intelliCar.dto.request.OfferCreateRequest;
 import com.efeerturk.intelliCar.dto.response.OfferResponse;
 import com.efeerturk.intelliCar.enums.CarStatus;
+import com.efeerturk.intelliCar.enums.MessageType;
 import com.efeerturk.intelliCar.enums.OfferStatus;
+import com.efeerturk.intelliCar.exception.BaseException;
+import com.efeerturk.intelliCar.exception.ErrorMessage;
 import com.efeerturk.intelliCar.mapper.OfferMapper;
 import com.efeerturk.intelliCar.model.Car;
 import com.efeerturk.intelliCar.model.Offer;
@@ -38,24 +41,24 @@ public class OfferServiceImpl implements OfferService {
     public OfferResponse createOffer(OfferCreateRequest request, UUID buyerId) {
 
         Car dbCar = carRepository.findById(request.carId())
-                .orElseThrow(() -> new RuntimeException("Araç bulunamadı: " + request.carId()));
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND,request.carId().toString())));
 
 
         if (dbCar.getStatus() != CarStatus.ACTIVE) {
             log.warn("Aktif olmayan araca teklif verilmeye çalışıldı. Car ID: {}", dbCar.getId());
-            return null; // TODO: Sadece yayındaki araçlara teklif verilebilir hatası eklenecek
+            throw new BaseException(new ErrorMessage(MessageType.CAR_NOT_ACTIVE, request.carId().toString()));
         }
 
 
         if (dbCar.getSeller().getId().equals(buyerId)) {
             log.warn("Kullanıcı kendi aracına teklif veremez. User ID: {}, Car ID: {}", buyerId, dbCar.getId());
-            return null; // TODO: Kendi aracınıza teklif veremezsiniz hatası eklenecek
+            throw new BaseException(new ErrorMessage(MessageType.CANNOT_OFFER_ON_OWN_CAR,buyerId.toString()));
         }
 
 
         if (offerRepository.existsByCarIdAndBuyerIdAndStatus(dbCar.getId(), buyerId, OfferStatus.PENDING)) {
             log.warn("Bekleyen teklif varken yeni teklif verilemez. Buyer ID: {}, Car ID: {}", buyerId, dbCar.getId());
-            return null; // TODO: Zaten onay bekleyen bir teklif var hatası eklenecek
+            throw new BaseException(new ErrorMessage(MessageType.PENDING_OFFER_ALREADY_EXISTS,buyerId.toString()));
         }
 
         User buyer = userService.getUserEntityById(buyerId);
@@ -75,16 +78,16 @@ public class OfferServiceImpl implements OfferService {
     public OfferResponse respondToOffer(UUID offerId, OfferStatus newStatus, UUID sellerId) {
         Offer offer = offerRepository.findById(offerId).orElseThrow(() -> new RuntimeException("Offer ID: " + offerId));
         if (!offer.getCar().getSeller().getId().equals(sellerId)) {
-            log.warn("bu teklifi yanıtlama yetkiniz yok");//TODO:Yetki hatası eklenecek
-            return null;
+            log.warn("bu teklifi yanıtlama yetkiniz yok");
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_OFFER_OPERATION,offerId.toString()));
         }
             if (offer.getStatus() != OfferStatus.PENDING) {
                 log.warn("yalnızca beklemede olan teklifler yanıtlanabilir");
-                return null;
+                throw new BaseException(new ErrorMessage(MessageType.OFFER_NOT_PENDING,offerId.toString()));
             }
             if (newStatus == OfferStatus.PENDING) {
-                log.warn("geçersiz teklif durumu");//TODO:Geçersiz teklif durumu hatası eklenecek
-                return null;
+                log.warn("geçersiz teklif durumu");
+                throw new BaseException(new ErrorMessage(MessageType.INVALID_OFFER_STATUS,offerId.toString()));
             }
             offer.setStatus(newStatus);
             Offer savedOffer = offerRepository.save(offer);
@@ -97,9 +100,9 @@ public class OfferServiceImpl implements OfferService {
         Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car ID: " + carId));
         if (!dbCar.getSeller().getId().equals(sellerId)) {
             log.warn("bu ilana gelen teklifleri yalnızca araç sahibi görüntüleyebilir");
-            return null;
+            throw new BaseException(new ErrorMessage(MessageType.ONLY_THE_VEHICLE_OWNER_CAN_VIEW_THE_OFFERS,carId.toString()));
         }
-        return offerRepository.findByBuyerId(carId, pageable).map(offerMapper::toResponse);
+        return offerRepository.findByCarId(carId, pageable).map(offerMapper::toResponse);
     }
     @Override
     @Transactional(readOnly = true)

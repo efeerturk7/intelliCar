@@ -2,6 +2,9 @@ package com.efeerturk.intelliCar.service.impl;
 
 import com.efeerturk.intelliCar.dto.request.RegisterRequest;
 import com.efeerturk.intelliCar.dto.response.UserResponse;
+import com.efeerturk.intelliCar.enums.MessageType;
+import com.efeerturk.intelliCar.exception.BaseException;
+import com.efeerturk.intelliCar.exception.ErrorMessage;
 import com.efeerturk.intelliCar.mapper.UserMapper;
 import com.efeerturk.intelliCar.model.User;
 import com.efeerturk.intelliCar.repository.UserRepository;
@@ -24,7 +27,7 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse register(RegisterRequest registerRequest) {
         if(userRepository.existsByEmail(registerRequest.email())){
-            return null;//hesap zaten var hatası eklenecek
+            throw new BaseException(new ErrorMessage(MessageType.THE_ACCOUNT_ALREADY_EXISTS,registerRequest.email()));
         }else {
             User user=userMapper.toEntity(registerRequest);
 
@@ -45,7 +48,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public User getUserEntityById(UUID id) {
         return userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("User not found with id: " + id));
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.USER_NOT_FOUND,id.toString())));
 
     }
 

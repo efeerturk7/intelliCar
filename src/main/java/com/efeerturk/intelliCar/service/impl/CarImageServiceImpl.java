@@ -2,6 +2,9 @@ package com.efeerturk.intelliCar.service.impl;
 
 import com.efeerturk.intelliCar.dto.request.CarImageRequest;
 import com.efeerturk.intelliCar.dto.response.CarImageResponse;
+import com.efeerturk.intelliCar.enums.MessageType;
+import com.efeerturk.intelliCar.exception.BaseException;
+import com.efeerturk.intelliCar.exception.ErrorMessage;
 import com.efeerturk.intelliCar.mapper.CarImageMapper;
 import com.efeerturk.intelliCar.model.Car;
 import com.efeerturk.intelliCar.model.CarImage;
@@ -29,7 +32,7 @@ public class CarImageServiceImpl implements CarImageService {
         Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
         if (!dbCar.getSeller().getId().equals(sellerId)){
             log.error("Bu ilana görsel ekleme yetkiniz yok");
-            return null;
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
         }
         List<CarImage> images = requestList.stream().map(req -> {
             CarImage img = carImageMapper.toEntity(req);
@@ -42,14 +45,14 @@ public class CarImageServiceImpl implements CarImageService {
     @Override
     @Transactional
     public void setPrimaryImage(UUID carId,UUID imageId,UUID sellerId){
-        CarImage dbCarImage=carImageRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
+        CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
         if (!dbCarImage.getCar().getId().equals(carId)){
             log.error("bu görsel belirtilen araca ait değil");
-            throw new RuntimeException();
+            throw new BaseException(new ErrorMessage(MessageType.IMAGE_DOES_NOT_BELONG_TO_CAR,dbCarImage.getCar().getId().toString()));
         }
         if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)){
             log.error("bu işlem için yetkiniz yok");
-            throw new RuntimeException();
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
         }
         carImageRepository.findByCarIdAndIsPrimaryTrue(carId).ifPresent(oldPrimary -> {
             oldPrimary.setPrimary(false);
@@ -64,7 +67,7 @@ public class CarImageServiceImpl implements CarImageService {
     public void deleteImage(UUID imageId,UUID sellerId){
         CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new RuntimeException("Image not found with id: " + imageId));
         if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)){
-            throw new RuntimeException("bu görseli silme yetkiniz yok");
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
         }
         carImageRepository.delete(dbCarImage);
         log.info("Car {} primary image deleted",imageId);
