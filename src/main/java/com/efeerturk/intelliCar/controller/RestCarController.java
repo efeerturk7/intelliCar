@@ -5,6 +5,7 @@ import com.efeerturk.intelliCar.dto.request.CarFilterRequest;
 import com.efeerturk.intelliCar.dto.request.CarUpdateRequest;
 import com.efeerturk.intelliCar.dto.response.CarDetailResponse;
 import com.efeerturk.intelliCar.dto.response.CarListResponse;
+import com.efeerturk.intelliCar.model.User;
 import com.efeerturk.intelliCar.service.CarService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -21,40 +23,60 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @RequestMapping("/intelliCar/api/v1/car")
 public class RestCarController {
+
     private final CarService carService;
-    @PostMapping("/create")
-    public ResponseEntity<CarDetailResponse> createCar(@Valid @RequestBody CarCreateRequest carCreateRequest, @RequestHeader("X-User-Id") UUID sellerId){
-        CarDetailResponse response= carService.createCar(carCreateRequest, sellerId);
+
+
+    @PostMapping
+    public ResponseEntity<CarDetailResponse> createCar(
+            @Valid @RequestBody CarCreateRequest request,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        CarDetailResponse response = carService.createCar(request, currentUser.getId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
-    @GetMapping("/get/{id}")
-    public ResponseEntity<CarDetailResponse>getCarById(@PathVariable UUID id){
-        CarDetailResponse response= carService.getCarById(id);
-        return ResponseEntity.ok(response);
+
+
+    @GetMapping("/{id}")
+    public ResponseEntity<CarDetailResponse> getCarById(@PathVariable UUID id) {
+        return ResponseEntity.ok(carService.getCarById(id));
     }
-    @GetMapping("/getAllCars")
-    public ResponseEntity<Page<CarListResponse>> getAllCars(@Valid @RequestBody CarFilterRequest carFilterRequest, Pageable pageable){
-        Page<CarListResponse> responsePage = carService.getAllCars(carFilterRequest, pageable);
-        return  ResponseEntity.ok(responsePage);
+
+
+    @GetMapping
+    public ResponseEntity<Page<CarListResponse>> getAllCars(
+            @ModelAttribute CarFilterRequest filterRequest,
+            Pageable pageable
+    ) {
+        return ResponseEntity.ok(carService.getAllCars(filterRequest, pageable));
     }
+
+
     @GetMapping("/my-cars")
-    public ResponseEntity<Page<CarListResponse>>getMyCars(@RequestHeader("X-User-Id")UUID sellerId, Pageable pageable){
-        Page<CarListResponse> responsePage = carService.getMyCars(sellerId, pageable);
-        return  ResponseEntity.ok(responsePage);
+    public ResponseEntity<Page<CarListResponse>> getMyCars(
+            @AuthenticationPrincipal User currentUser,
+            Pageable pageable
+    ) {
+        return ResponseEntity.ok(carService.getMyCars(currentUser.getId(), pageable));
     }
-    @PutMapping("/{carId}")
-    public ResponseEntity<CarDetailResponse> updateCar(@PathVariable UUID carId, @Valid @RequestBody CarUpdateRequest carUpdateRequest,@RequestHeader("X-User-Id") UUID currentUserId){
-        CarDetailResponse response= carService.updateCar(carId, carUpdateRequest, currentUserId);
-        return ResponseEntity.ok(response);
+
+
+    @PutMapping("/{id}")
+    public ResponseEntity<CarDetailResponse> updateCar(
+            @PathVariable UUID id,
+            @Valid @RequestBody CarUpdateRequest request,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        return ResponseEntity.ok(carService.updateCar(id, request, currentUser.getId()));
     }
+
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCar(
             @PathVariable UUID id,
-            @RequestHeader("X-User-Id") UUID currentUserId
+            @AuthenticationPrincipal User currentUser
     ) {
-        carService.deleteCar(id, currentUserId);
-        return ResponseEntity.noContent().build(); // 204 No Content
+        carService.deleteCar(id, currentUser.getId());
+        return ResponseEntity.noContent().build();
     }
-
-
 }

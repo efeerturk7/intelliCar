@@ -30,7 +30,9 @@ public enum MessageType {
     ONLY_THE_VEHICLE_OWNER_CAN_VIEW_THE_OFFERS("a1036", "Only the vehicle owner can view offers for this car"),
 
     // --- GENERAL / SYSTEM (9000+) ---
-    INTERNAL_SERVER_ERROR("a9999", "An unexpected error occurred");
+    INTERNAL_SERVER_ERROR("a9999", "An unexpected error occurred"),
+    WRONG_CREDENTIALS("a1003", "Invalid email or password"),
+    INVALID_TOKEN("a1004", "JWT token is invalid or expired");
 
     private String code;
     private String message;

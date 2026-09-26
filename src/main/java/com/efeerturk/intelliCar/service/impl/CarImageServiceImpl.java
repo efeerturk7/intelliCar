@@ -29,7 +29,7 @@ public class CarImageServiceImpl implements CarImageService {
     @Override
     @Transactional
     public List<CarImageResponse>addImagesToCar(UUID carId, List<CarImageRequest> requestList, UUID sellerId){
-        Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
+        Car dbCar=carRepository.findById(carId).orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND,carId.toString())));
         if (!dbCar.getSeller().getId().equals(sellerId)){
             log.error("Bu ilana görsel ekleme yetkiniz yok");
             throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
@@ -45,7 +45,7 @@ public class CarImageServiceImpl implements CarImageService {
     @Override
     @Transactional
     public void setPrimaryImage(UUID carId,UUID imageId,UUID sellerId){
-        CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
+        CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND,carId.toString())));
         if (!dbCarImage.getCar().getId().equals(carId)){
             log.error("bu görsel belirtilen araca ait değil");
             throw new BaseException(new ErrorMessage(MessageType.IMAGE_DOES_NOT_BELONG_TO_CAR,dbCarImage.getCar().getId().toString()));
