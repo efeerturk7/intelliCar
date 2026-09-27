@@ -21,26 +21,18 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${intelliCar.security.jwt.secret}")
+    @Value("${intellicar.security.jwt.secret}")
     private String secretKey;
 
-    @Value("${intelliCar.security.jwt.expiration}")
-    private long jwtExpiration;
+    @Value("${intellicar.security.jwt.access-expiration}")
+    private long accessExpiration;
 
-    public String extractUsername(String token) {
-        return extractClaim(token, Claims::getSubject);
-    }
 
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
-        return claimsResolver.apply(claims);
-    }
-
-    public String generateToken(User user) {
+    public String generateAccessToken(User user) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("userId", user.getId().toString());
         extraClaims.put("role", user.getRole().name());
-        return buildToken(extraClaims, user, jwtExpiration);
+        return buildToken(extraClaims, user, accessExpiration);
     }
 
     private String buildToken(Map<String, Object> extraClaims, User user, long expiration) {
@@ -51,6 +43,16 @@ public class JwtService {
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSignInKey())
                 .compact();
+    }
+
+
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {

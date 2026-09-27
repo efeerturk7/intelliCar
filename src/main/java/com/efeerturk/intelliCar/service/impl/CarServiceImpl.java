@@ -24,6 +24,8 @@ import com.efeerturk.intelliCar.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -66,6 +68,7 @@ public class CarServiceImpl implements CarService  {
             }
         @Override
         @Transactional
+        @Cacheable(value = "cars", key = "#id")
         public CarDetailResponse getCarById(UUID carId) {
           Car dbCar = carRepository.findByIdWithDetails(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
 
@@ -76,6 +79,7 @@ public class CarServiceImpl implements CarService  {
 
         @Override
         @Transactional(readOnly = true)
+
         public Page<CarListResponse> getAllCars(CarFilterRequest carFilterRequest, Pageable pageable) {
             Specification<Car>carSpecification= CarSpecification.filterByCriteria(carFilterRequest);
             Page<Car>carPage=carRepository.findAll(carSpecification, pageable);
@@ -89,6 +93,7 @@ public class CarServiceImpl implements CarService  {
         }
         @Override
         @Transactional
+        @CacheEvict(value = "cars", key = "#id")
         public CarDetailResponse updateCar(UUID carId, CarUpdateRequest carUpdateRequest,UUID currentUserId) {
             Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
             if (!dbCar.getSeller().getId().equals(currentUserId)){
@@ -104,6 +109,7 @@ public class CarServiceImpl implements CarService  {
         }
         @Override
         @Transactional
+        @CacheEvict(value = "cars", key = "#id")
         public void deleteCar(UUID carId,UUID currentUserId) {
           Car dbCar=carRepository.findById(carId).orElseThrow(() -> new RuntimeException("Car not found with id: " + carId));
           if (!dbCar.getSeller().getId().equals(currentUserId)){

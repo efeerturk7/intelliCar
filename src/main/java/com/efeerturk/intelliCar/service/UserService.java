@@ -1,6 +1,7 @@
 package com.efeerturk.intelliCar.service;
 
 import com.efeerturk.intelliCar.dto.request.LoginRequest;
+import com.efeerturk.intelliCar.dto.request.RefreshTokenRequest;
 import com.efeerturk.intelliCar.dto.request.RegisterRequest;
 import com.efeerturk.intelliCar.dto.response.AuthResponse;
 import com.efeerturk.intelliCar.dto.response.UserResponse;
@@ -13,4 +14,6 @@ public interface UserService {
     UserResponse getProfile(UUID id);
     User getUserEntityById(UUID id);
     AuthResponse login(LoginRequest loginRequest);
+    AuthResponse refreshToken(RefreshTokenRequest request);
+    void logout(UUID userId);
 }

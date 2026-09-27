@@ -1,6 +1,7 @@
 package com.efeerturk.intelliCar.service.impl;
 
 import com.efeerturk.intelliCar.dto.request.LoginRequest;
+import com.efeerturk.intelliCar.dto.request.RefreshTokenRequest;
 import com.efeerturk.intelliCar.dto.request.RegisterRequest;
 import com.efeerturk.intelliCar.dto.response.AuthResponse;
 import com.efeerturk.intelliCar.dto.response.UserResponse;
@@ -9,8 +10,10 @@ import com.efeerturk.intelliCar.exception.BaseException;
 import com.efeerturk.intelliCar.exception.ErrorMessage;
 import com.efeerturk.intelliCar.jwt.JwtService;
 import com.efeerturk.intelliCar.mapper.UserMapper;
+import com.efeerturk.intelliCar.model.RefreshToken;
 import com.efeerturk.intelliCar.model.User;
 import com.efeerturk.intelliCar.repository.UserRepository;
+import com.efeerturk.intelliCar.service.RefreshTokenService;
 import com.efeerturk.intelliCar.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +35,7 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     @Override
     @Transactional
@@ -42,17 +46,24 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = userMapper.toEntity(registerRequest);
-
         user.setPasswordHash(passwordEncoder.encode(registerRequest.password()));
         User savedUser = userRepository.save(user);
 
-        String jwtToken = jwtService.generateToken(savedUser);
-        log.info("User {} registered and token generated", savedUser.getId());
+        String accessToken = jwtService.generateAccessToken(savedUser);
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(savedUser);
 
-        return new AuthResponse(jwtToken, savedUser.getId(), savedUser.getEmail(), savedUser.getRole().name());
+        log.info("User {} registered with refresh token", savedUser.getId());
+        return new AuthResponse(
+                accessToken,
+                refreshToken.getToken(),
+                savedUser.getId(),
+                savedUser.getEmail(),
+                savedUser.getRole().name()
+        );
     }
 
     @Override
+    @Transactional
     public AuthResponse login(LoginRequest loginRequest) {
         try {
             authenticationManager.authenticate(
@@ -63,16 +74,43 @@ public class UserServiceImpl implements UserService {
             );
         } catch (Exception ex) {
             log.warn("Hatalı giriş denemesi: {}", loginRequest.email());
-            throw new BaseException(new ErrorMessage(MessageType.WRONG_CREDENTIALS, loginRequest.email()));
+            throw new BaseException(new ErrorMessage(MessageType.WRONG_CREDENTIALS,loginRequest.email()));
         }
 
         User user = userRepository.findByEmail(loginRequest.email())
                 .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.USER_NOT_FOUND, loginRequest.email())));
 
-        String jwtToken = jwtService.generateToken(user);
-        log.info("User {} logged in successfully", user.getId());
+        String accessToken = jwtService.generateAccessToken(user);
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
-        return new AuthResponse(jwtToken, user.getId(), user.getEmail(), user.getRole().name());
+        log.info("User {} logged in with refresh token", user.getId());
+        return new AuthResponse(
+                accessToken,
+                refreshToken.getToken(),
+                user.getId(),
+                user.getEmail(),
+                user.getRole().name()
+        );
+    }
+
+    @Override
+    @Transactional
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        RefreshToken verifiedToken = refreshTokenService.findByToken(request.refreshToken());
+        verifiedToken = refreshTokenService.verifyExpiration(verifiedToken);
+
+        User user = verifiedToken.getUser();
+        String newAccessToken = jwtService.generateAccessToken(user);
+
+        RefreshToken newRefreshToken = refreshTokenService.createRefreshToken(user);
+
+        return new AuthResponse(
+                newAccessToken,
+                newRefreshToken.getToken(),
+                user.getId(),
+                user.getEmail(),
+                user.getRole().name()
+        );
     }
     @Override
     @Transactional(readOnly = true)
@@ -88,6 +126,12 @@ public class UserServiceImpl implements UserService {
         return userRepository.findById(id)
                 .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.USER_NOT_FOUND,id.toString())));
 
+    }
+    @Override
+    @Transactional
+    public void logout(UUID userId) {
+        refreshTokenService.deleteByUserId(userId);
+        log.info("User {} logged out successfully and refresh tokens revoked", userId);
     }
 
 }

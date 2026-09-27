@@ -1,15 +1,16 @@
 package com.efeerturk.intelliCar.handler;
 
-import com.efeerturk.intelliCar.exception.ApiError;
-import com.efeerturk.intelliCar.exception.BaseException;
+import com.efeerturk.intelliCar.enums.MessageType;
+import com.efeerturk.intelliCar.exception.*;
 import com.efeerturk.intelliCar.exception.Exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import com.efeerturk.intelliCar.exception.Exception;
 import org.springframework.web.context.request.WebRequest;
 
 import java.net.Inet4Address;
@@ -68,5 +69,11 @@ public class GlobalExceptionHandler {
         apiError.setException(exception);
 
         return apiError;
+    }
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorMessage> handleAuthenticationException(AuthenticationException ex) {
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorMessage(MessageType.INVALID_TOKEN, MessageType.INVALID_TOKEN.getMessage()));
     }
 }

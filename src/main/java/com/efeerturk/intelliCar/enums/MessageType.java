@@ -32,7 +32,9 @@ public enum MessageType {
     // --- GENERAL / SYSTEM (9000+) ---
     INTERNAL_SERVER_ERROR("a9999", "An unexpected error occurred"),
     WRONG_CREDENTIALS("a1003", "Invalid email or password"),
-    INVALID_TOKEN("a1004", "JWT token is invalid or expired");
+    INVALID_TOKEN("a1004", "JWT token is invalid or expired"),
+    REFRESH_TOKEN_EXPIRED("a1016", "Refresh token was expired or revoked. Please make a new signin request"),
+    REFRESH_TOKEN_NOT_FOUND("a1017", "Refresh token not found");
 
     private String code;
     private String message;
