@@ -10,6 +10,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+
 @Entity
 @Table(name = "offers")
 @NoArgsConstructor
@@ -24,6 +25,8 @@ public class Offer {
     @ManyToOne(fetch = FetchType.LAZY)
     private User buyer;
     private BigDecimal offeredPrice;
+    // DÜZELTME: OfferCreateRequest.note / OfferResponse.note için alan eklendi.
+    private String note;
     @Enumerated(EnumType.STRING)
     private OfferStatus status;
     @CreationTimestamp

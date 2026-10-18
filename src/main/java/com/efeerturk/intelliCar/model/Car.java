@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
 @Entity
 @Table(name = "cars")
 @NoArgsConstructor
@@ -28,9 +29,12 @@ public class Car {
     private User seller;
     private String brand;
     private String model;
-    private String year;
+    // DÜZELTME: String -> int. DTO'lar int, CarSpecification yıl karşılaştırmaları sayısal olmalı.
+    @Column(name = "car_year")
+    private int year;
     private BigDecimal price;
-    private double mileage;
+    // DÜZELTME: double -> int. DTO'larda mileage int.
+    private int mileage;
     @Enumerated(EnumType.STRING)
     private FuelType fuelType;
     @Enumerated(EnumType.STRING)
@@ -43,6 +47,6 @@ public class Car {
     private Instant createdAt;
     @Enumerated(EnumType.STRING)
     private CarStatus status;
-    @OneToMany(mappedBy = "car",cascade = CascadeType.ALL,orphanRemoval = true)
-    List<CarImage> images=new ArrayList<>();
+    @OneToMany(mappedBy = "car", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<CarImage> images = new ArrayList<>();
 }

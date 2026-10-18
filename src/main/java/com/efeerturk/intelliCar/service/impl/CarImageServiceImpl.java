@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,34 +26,55 @@ import java.util.UUID;
 public class CarImageServiceImpl implements CarImageService {
     private final CarImageRepository carImageRepository;
     private final CarRepository carRepository;
-    private CarImageMapper carImageMapper;
+    private final CarImageMapper carImageMapper;
+
     @Override
     @Transactional
-    public List<CarImageResponse>addImagesToCar(UUID carId, List<CarImageRequest> requestList, UUID sellerId){
-        Car dbCar=carRepository.findById(carId).orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND,carId.toString())));
-        if (!dbCar.getSeller().getId().equals(sellerId)){
+    public List<CarImageResponse> addImagesToCar(UUID carId, List<CarImageRequest> requestList, UUID sellerId) {
+        Car dbCar = carRepository.findById(carId)
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND, carId.toString())));
+        if (!dbCar.getSeller().getId().equals(sellerId)) {
             log.error("Bu ilana görsel ekleme yetkiniz yok");
-            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
         }
-        List<CarImage> images = requestList.stream().map(req -> {
+
+
+        boolean newPrimaryRequested = requestList.stream().anyMatch(CarImageRequest::isPrimary);
+        if (newPrimaryRequested) {
+            carImageRepository.findByCarId(carId).forEach(old -> old.setPrimary(false));
+        }
+
+        boolean primaryAssigned = false;
+        List<CarImage> images = new ArrayList<>();
+        for (CarImageRequest req : requestList) {
             CarImage img = carImageMapper.toEntity(req);
             img.setCar(dbCar);
-            return img;
-        }).toList();
-        List<CarImage>savedCarImages=carImageRepository.saveAll(images);
+            if (img.isPrimary()) {
+                if (primaryAssigned) {
+                    img.setPrimary(false);
+                } else {
+                    primaryAssigned = true;
+                }
+            }
+            images.add(img);
+        }
+        List<CarImage> savedCarImages = carImageRepository.saveAll(images);
         return carImageMapper.toListResponse(savedCarImages);
     }
+
     @Override
     @Transactional
-    public void setPrimaryImage(UUID carId,UUID imageId,UUID sellerId){
-        CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND,carId.toString())));
-        if (!dbCarImage.getCar().getId().equals(carId)){
+    public void setPrimaryImage(UUID carId, UUID imageId, UUID sellerId) {
+
+        CarImage dbCarImage = carImageRepository.findById(imageId)
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.IMAGE_NOT_FOUND, imageId.toString())));
+        if (!dbCarImage.getCar().getId().equals(carId)) {
             log.error("bu görsel belirtilen araca ait değil");
-            throw new BaseException(new ErrorMessage(MessageType.IMAGE_DOES_NOT_BELONG_TO_CAR,dbCarImage.getCar().getId().toString()));
+            throw new BaseException(new ErrorMessage(MessageType.IMAGE_DOES_NOT_BELONG_TO_CAR, carId.toString()));
         }
-        if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)){
+        if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)) {
             log.error("bu işlem için yetkiniz yok");
-            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
         }
         carImageRepository.findByCarIdAndIsPrimaryTrue(carId).ifPresent(oldPrimary -> {
             oldPrimary.setPrimary(false);
@@ -60,16 +82,18 @@ public class CarImageServiceImpl implements CarImageService {
         });
         dbCarImage.setPrimary(true);
         carImageRepository.save(dbCarImage);
-        log.info("Car {} primary image set to {} ",carId,imageId);
+        log.info("Car {} primary image set to {} ", carId, imageId);
     }
+
     @Override
     @Transactional
-    public void deleteImage(UUID imageId,UUID sellerId){
-        CarImage dbCarImage=carImageRepository.findById(imageId).orElseThrow(() -> new RuntimeException("Image not found with id: " + imageId));
-        if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)){
-            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION,sellerId.toString()));
+    public void deleteImage(UUID imageId, UUID sellerId) {
+        CarImage dbCarImage = carImageRepository.findById(imageId)
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.IMAGE_NOT_FOUND, imageId.toString())));
+        if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)) {
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
         }
         carImageRepository.delete(dbCarImage);
-        log.info("Car {} primary image deleted",imageId);
+        log.info("Image {} deleted", imageId);
     }
 }

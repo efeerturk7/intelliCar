@@ -5,6 +5,9 @@ import com.efeerturk.intelliCar.dto.request.CarFilterRequest;
 import com.efeerturk.intelliCar.dto.request.CarUpdateRequest;
 import com.efeerturk.intelliCar.dto.response.CarDetailResponse;
 import com.efeerturk.intelliCar.dto.response.CarListResponse;
+import com.efeerturk.intelliCar.event.CarViewedEvent;
+import com.efeerturk.intelliCar.kafka.KafkaEventPublisher;
+import com.efeerturk.intelliCar.kafka.KafkaTopics;
 import com.efeerturk.intelliCar.model.User;
 import com.efeerturk.intelliCar.service.CarService;
 import jakarta.validation.Valid;
@@ -16,7 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-
+import java.time.Instant;
 import java.util.UUID;
 
 @RestController
@@ -25,6 +28,7 @@ import java.util.UUID;
 public class RestCarController {
 
     private final CarService carService;
+    private final KafkaEventPublisher kafkaEventPublisher;
 
 
     @PostMapping
@@ -37,9 +41,16 @@ public class RestCarController {
     }
 
 
+
     @GetMapping("/{id}")
-    public ResponseEntity<CarDetailResponse> getCarById(@PathVariable UUID id) {
-        return ResponseEntity.ok(carService.getCarById(id));
+    public ResponseEntity<CarDetailResponse> getCarById(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User currentUser
+    ) {
+        CarDetailResponse response = carService.getCarById(id);
+        kafkaEventPublisher.publish(KafkaTopics.CAR_VIEW_EVENTS, id.toString(),
+                new CarViewedEvent(id, currentUser != null ? currentUser.getId() : null, Instant.now()));
+        return ResponseEntity.ok(response);
     }
 
 

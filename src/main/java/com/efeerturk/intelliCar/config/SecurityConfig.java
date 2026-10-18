@@ -36,9 +36,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         .requestMatchers(
-                                "/api/v1/auth/register",
-                                "/api/v1/auth/login",
-                                "/api/v1/auth/refresh-token"
+                                "/intelliCar/api/v1/auth/register",
+                                "/intelliCar/api/v1/auth/login",
+                                "/intelliCar/api/v1/auth/refresh-token"
                         ).permitAll()
 
                         .requestMatchers(
@@ -47,7 +47,13 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
-                        .requestMatchers(HttpMethod.GET, "/api/v1/cars/**").permitAll()
+
+                        .requestMatchers(HttpMethod.GET, "/intelliCar/api/v1/car/my-cars").authenticated()
+
+
+                        .requestMatchers(HttpMethod.GET,
+                                "/intelliCar/api/v1/car",
+                                "/intelliCar/api/v1/car/**").permitAll()
 
                         .anyRequest().authenticated()
                 )
@@ -57,5 +63,3 @@ public class SecurityConfig {
         return http.build();
     }
 }
-
-
