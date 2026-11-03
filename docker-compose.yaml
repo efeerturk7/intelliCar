@@ -38,8 +38,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # 3. Kafka (KRaft modu, Zookeeper yok)
-
 
   kafka:
     image: apache/kafka:latest
@@ -70,7 +68,6 @@ services:
       retries: 10
       start_period: 20s
 
-  # 4. intelliCar Backend Servisi
   backend:
     build:
       context: .
@@ -87,7 +84,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET .env içinde tanımlı olmalı}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY .env içinde tanımlı olmalı}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
     depends_on:
       postgres:
         condition: service_healthy

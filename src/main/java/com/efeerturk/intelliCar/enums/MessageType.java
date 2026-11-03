@@ -31,6 +31,7 @@ public enum MessageType {
 
     // --- AI (1040 - 1049) ---
     AI_SERVICE_UNAVAILABLE("a1040", "The AI service is currently unavailable, please try again later"),
+    INSUFFICIENT_MARKET_DATA("a1041", "No similar listings were found to estimate a price for this brand"),
 
     // --- GENERAL / SYSTEM (9000+) ---
     INTERNAL_SERVER_ERROR("a9999", "An unexpected error occurred"),

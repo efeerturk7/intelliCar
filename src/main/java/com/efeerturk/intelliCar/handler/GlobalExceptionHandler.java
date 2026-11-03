@@ -28,8 +28,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(createApiError(ex.getMessage(), request));
     }
 
-    // AI: Yapay zeka servisi sorunlarında 400 yerine 503 (Service Unavailable) dön.
-    // Daha özel (alt sınıf) handler olduğu için BaseException handler'ından önce seçilir.
+
     @ExceptionHandler(value = { AiServiceException.class })
     public ResponseEntity<ApiError<String>> handleAiServiceException(AiServiceException ex, WebRequest request) {
         ApiError<String> apiError = createApiError(ex.getMessage(), request);

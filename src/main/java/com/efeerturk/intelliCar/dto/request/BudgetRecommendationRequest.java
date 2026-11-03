@@ -10,7 +10,6 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
-
 public record BudgetRecommendationRequest(
         @NotNull(message = "Budget is required")
         @Positive(message = "Budget must be greater than zero")
