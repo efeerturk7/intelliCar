@@ -2,6 +2,7 @@
 
 > An AI-powered used car marketplace backend built with Spring Boot, Spring AI (Google Gemini), PostgreSQL, Redis and Apache Kafka.
 
+[![CI](https://github.com/<your-username>/intelliCar/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-username>/intelliCar/actions/workflows/ci.yml)
 ![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-6DB33F?logo=springboot)
 ![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0-6DB33F?logo=spring)
@@ -16,7 +17,7 @@ intelliCar is the backend of a car gallery platform where sellers publish vehicl
 - **Buyers** tell the assistant their budget and get a ranked list of the best matching cars from the real listings.
 - **Sellers** describe the car they own and get a suggested price range, based on similar listings on the platform.
 
-Domain events (new offers, listing views, status changes) are processed asynchronously through Kafka, and frequently read data is cached in Redis.
+Behind the API, domain events (new offers, listing views, status changes) are processed asynchronously through Kafka, sellers and buyers are notified by e-mail, frequently read data is cached in Redis, and the AI endpoints are protected by per-user rate limits. The whole system is covered by integration tests that run against real PostgreSQL, Redis and Kafka containers, and every change is verified by a CI pipeline.
 
 This project was developed as a graduation project.
 
@@ -29,31 +30,52 @@ This project was developed as a graduation project.
 - [Architecture](#architecture)
 - [AI Features](#ai-features)
 - [Event-Driven Design with Kafka](#event-driven-design-with-kafka)
+- [E-mail Notifications](#e-mail-notifications)
+- [AI Rate Limiting](#ai-rate-limiting)
 - [Domain Model](#domain-model)
 - [API Overview](#api-overview)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
+- [Testing and CI](#testing-and-ci)
 - [Troubleshooting](#troubleshooting)
 - [Project Structure](#project-structure)
 - [Design Decisions](#design-decisions)
-- [Roadmap](#roadmap)
+- [Future Work](#future-work)
 
 ---
 
 ## Features
 
-- **Authentication and authorization:** registration, login, JWT access tokens, refresh tokens stored server-side, logout, role-based users (`BUYER`, `SELLER`, `ADMIN`).
-- **Listings:** create, update and soft-delete car listings with multiple images and a primary image.
-- **Search and filtering:** dynamic, paginated filtering by brand, model, city, price range, year range, fuel type and transmission.
-- **Offers:** buyers make offers on active listings, sellers accept or reject them. Business rules prevent offers on your own car, on inactive listings, and duplicate pending offers.
-- **AI budget assistant:** ranks the best cars for a given budget and preferences, with a score, a reason, pros and cons for each car.
-- **AI price estimation:** suggests a selling price range for the user's own car by analyzing similar listings.
-- **Asynchronous processing with Kafka:** seller and buyer notifications, listing view counting, and automatic expiry of pending offers when a car is sold or deactivated.
-- **E-mail notifications:** the seller is e-mailed when a new offer arrives and the buyer when the offer is accepted or rejected. Mails are sent asynchronously from a Kafka consumer.
-- **AI rate limiting:** per-user limits on the AI endpoints (default 5 per minute and 50 per day) protect the Gemini quota.
-- **Caching:** car detail responses are cached in Redis and evicted on update or delete.
-- **API documentation:** interactive Swagger UI generated from the code.
-- **Containerized setup:** PostgreSQL, Redis, Kafka and the backend start with a single Docker Compose command, together with Mailpit, a local inbox for development e-mails.
+### Marketplace
+
+- **Authentication and authorization.** Registration, login, short-lived JWT access tokens, refresh tokens stored server-side, logout that revokes the session, and role-based users (`BUYER`, `SELLER`, `ADMIN`).
+- **Listings.** Sellers create, update and soft-delete car listings with multiple images and a primary image.
+- **Search and filtering.** Dynamic, paginated filtering by brand, model, city, price range, year range, fuel type and transmission.
+- **Offers.** Buyers make offers on active listings and sellers accept or reject them. Business rules prevent offers on your own car, on inactive listings, and duplicate pending offers.
+
+### AI assistant
+
+- **Budget assistant.** Ranks the best cars for a given budget and preferences, with a score, a reason, pros and cons for each car. See [AI Features](#ai-features).
+- **Price estimation.** Suggests a selling price range for the user's own car by analyzing similar listings on the platform.
+- **Guardrails.** The model only sees real listings, its answers are validated against them, and a statistical fallback covers model outages. See [Safety and reliability](#safety-and-reliability-of-the-ai-layer).
+- **Fair use.** Per-user rate limits protect the model quota. See [AI Rate Limiting](#ai-rate-limiting).
+
+### Asynchronous processing and notifications
+
+- **Kafka event pipeline.** Listing view counting, automatic expiry of pending offers when a car is sold or deactivated, and offer notifications run outside the request path. See [Event-Driven Design with Kafka](#event-driven-design-with-kafka).
+- **E-mail notifications.** The seller is e-mailed when a new offer arrives and the buyer when the offer is accepted or rejected. See [E-mail Notifications](#e-mail-notifications).
+
+### Performance and reliability
+
+- **Redis caching.** Car detail responses are cached in Redis and evicted on update or delete.
+- **Resilient by design.** A slow or unavailable Kafka broker, mail server or AI provider does not break the core marketplace flows.
+
+### Engineering quality
+
+- **Automated tests.** Unit tests plus integration tests that exercise the real stack (PostgreSQL, Redis, Kafka) with Testcontainers. See [Testing and CI](#testing-and-ci).
+- **Continuous integration.** A GitHub Actions pipeline builds, tests and packages every push and pull request.
+- **API documentation.** Interactive Swagger UI generated from the code.
+- **Containerized setup.** PostgreSQL, Redis, Kafka, a local development inbox (Mailpit) and the backend start with a single Docker Compose command.
 
 ---
 
@@ -75,8 +97,10 @@ This project was developed as a graduation project.
 | Mapping | MapStruct 1.5.5 | Entity to DTO mapping |
 | Boilerplate | Lombok | Getters, constructors, logging |
 | API docs | springdoc-openapi 3.1.1 | OpenAPI 3 spec and Swagger UI |
+| Testing | JUnit 5, Mockito, AssertJ, Awaitility, Testcontainers | Unit and integration tests against real infrastructure |
 | Build | Maven (wrapper included) | Build and dependency management |
 | Containers | Docker, Docker Compose | Local environment and deployment image |
+| CI | GitHub Actions | Build, test and Docker image check on every push and pull request |
 
 ---
 
@@ -198,7 +222,7 @@ The response contains `minPrice`, `suggestedPrice`, `maxPrice`, `currency`, `con
 - **Structured output.** Spring AI maps the model response to Java records, so malformed answers fail early.
 - **Prompt injection resistance.** User preferences and listing descriptions are sent as data, and the prompt tells the model not to follow instructions inside them.
 - **Authenticated only.** Every AI call costs quota, so the endpoints require a valid JWT.
-- **Rate limited.** Each user may make 5 AI requests per minute and 50 per 24 hours (shared by both AI endpoints). Counters live in Redis. Beyond the limit the API returns `429 Too Many Requests` with a `Retry-After` header. If Redis is unreachable, requests are allowed rather than blocked.
+- **Rate limited.** Each user is limited per minute and per day, and beyond the limit the API returns `429`. See [AI Rate Limiting](#ai-rate-limiting).
 - **Graceful failure.** If Gemini is unavailable, the recommendation endpoint returns `503`, and the price endpoint falls back to the statistical range.
 - **Low temperature** (0.2) and a short retry policy keep answers consistent and failures fast.
 
@@ -223,6 +247,57 @@ Key points:
 - **Ordering per entity.** The entity id is used as the message key, so all events of one offer or car land in the same partition and stay ordered.
 - **View counting outside the cache.** The detail endpoint is cached, so a cache hit never reaches the service method. The view event is therefore published from the controller, which runs on every request.
 - **JSON events** are defined as Java records in the `event` package.
+
+---
+
+## E-mail Notifications
+
+Offers are time-sensitive, so both sides are notified without having to check the platform.
+
+| Event | Recipient | Subject example |
+|---|---|---|
+| A buyer makes an offer | The seller of the car | `Yeni teklif: Toyota Corolla` |
+| The seller accepts the offer | The buyer | `Teklifiniz kabul edildi: Toyota Corolla` |
+| The seller rejects the offer | The buyer | `Teklifiniz reddedildi: Toyota Corolla` |
+
+E-mails are plain text, written in Turkish, and contain the car, the offered price (for example `1.050.000 TL`) and what to do next.
+
+How it works:
+
+1. The offer service publishes an event to Kafka after the database transaction commits.
+2. `OfferNotificationConsumer` receives it and calls `EmailNotificationService`.
+3. The service loads the recipient from the database, renders the text with `EmailTemplates` and sends it through Spring's `JavaMailSender`.
+
+Design notes:
+
+- **Never blocks the request.** The offer API responds as soon as the offer is saved. If the mail server is slow or down, the user does not notice, and the send is retried 3 times, 5 seconds apart.
+- **Privacy.** Events carry user ids, not e-mail addresses, and addresses are never written to logs.
+- **Header injection protection.** Values that end up in the subject (for example the car title) are reduced to a single line and truncated, so user input cannot add mail headers.
+- **Development without risk.** By default, mails go to [Mailpit](https://mailpit.axllent.org/), a local inbox that catches everything and delivers nothing to real people. Open <http://localhost:8025> to read them.
+- **Production ready.** Any SMTP server works. Set the `MAIL_*` variables (see [Configuration](#configuration)), for example with a Gmail app password.
+
+---
+
+## AI Rate Limiting
+
+Every AI request costs model quota and money, so both AI endpoints are limited **per user**.
+
+| Limit | Default | Property |
+|---|---|---|
+| Requests per minute | 5 | `intellicar.ai.rate-limit.per-minute` |
+| Requests per 24 hours | 50 | `intellicar.ai.rate-limit.per-day` |
+
+When a limit is exceeded, the API responds with `429 Too Many Requests` and a `Retry-After` header that tells the client how many seconds to wait.
+
+How it works:
+
+- A Spring MVC interceptor protects `/intelliCar/api/v1/ai/**`. The authenticated user is identified from the JWT.
+- Counters are fixed time windows stored in Redis (`INCR` plus `EXPIRE`), so the limit holds across multiple application instances and survives restarts.
+- Both AI endpoints share one quota, because both spend the same model quota.
+- A request rejected by the per-minute limit does not use up the daily quota.
+- If Redis is unreachable, requests are allowed instead of blocked (fail-open), and a warning is logged. Losing the limiter should not take the AI features offline.
+- Requests are counted before the body is validated, so invalid requests also count.
+- Setting a limit to `0` disables that window, and `intellicar.ai.rate-limit.enabled=false` turns the feature off.
 
 ---
 
@@ -325,7 +400,7 @@ Both AI endpoints are limited per user. When the limit is exceeded they return `
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/intelliCar.git
+git clone https://github.com/efeerturk7/intelliCar.git
 cd intelliCar
 ```
 
@@ -386,8 +461,8 @@ docker compose down -v
 docker exec -it intellicar-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic offer-events --from-beginning
 
-# Run tests (requires PostgreSQL, Redis and Kafka to be running)
-./mvnw test
+# Run all tests (needs a running Docker daemon, the tests start their own containers)
+./mvnw verify
 ```
 
 ---
@@ -445,10 +520,48 @@ When the backend runs inside Docker Compose, connection settings are overridden 
 
 ---
 
+## Testing and CI
+
+### Tests
+
+The tests need **Docker** but nothing else: they start their own PostgreSQL, Redis and Kafka containers with [Testcontainers](https://testcontainers.com/), so no `.env` file and no running Compose stack is required. Your development data is never touched.
+
+```bash
+./mvnw verify
+```
+
+| Test class | Type | What it covers |
+|---|---|---|
+| `AiRateLimiterTest`, `EmailTemplatesTest` | Unit (no Docker) | Rate limit windows and e-mail texts, including header injection protection |
+| `AuthIntegrationTest` | Integration | Register, login, refresh token, logout, protected endpoints |
+| `CarIntegrationTest` | Integration | Listing CRUD, filtering, ownership rules, Redis-cached detail, view counting through Kafka |
+| `OfferFlowIntegrationTest` | Integration | Offer rules, accept and reject, e-mails sent through Kafka, offers expiring when a car is sold |
+| `AiRateLimitIntegrationTest` | Integration | `429` and `Retry-After`, per-user quota, shared quota of both AI endpoints, counter in Redis |
+| `IntelliCarApplicationTests` | Integration | The application starts with real infrastructure |
+
+How the integration tests work:
+
+- The three containers start once and are shared by all test classes, and all classes share one Spring context. Each test creates its own random users and listings, so tests do not depend on each other.
+- Gemini is never called: the two AI services are replaced with mocks. E-mails are not sent: `JavaMailSender` is a mock and the tests wait for the mail that the Kafka consumer sends.
+- Asynchronous steps (Kafka consumers) are awaited with Awaitility instead of fixed sleeps.
+- Test settings live in `src/test/resources/application-test.properties` (test profile).
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
+
+1. **Build and test:** Java 21, Maven cache, `./mvnw verify` (GitHub's Ubuntu runners include Docker, so Testcontainers works out of the box). Test reports are uploaded when a run fails.
+2. **Build Docker image:** builds the `Dockerfile` to make sure the image can be built. Nothing is pushed anywhere.
+
+No secrets are needed in the repository settings.
+
+---
+
 ## Troubleshooting
 
 - **The app cannot connect to PostgreSQL or fails with a Hibernate dialect error.** The database is not reachable. Check `docker compose ps`. PostgreSQL only applies `POSTGRES_PASSWORD` when its volume is first created, so after changing the password in `.env` run `docker compose down -v` and start again (this deletes the data).
 - **Gemini returns "model not found" (404).** Model names are retired over time. Pick a current model in Google AI Studio and set `GEMINI_MODEL` in `.env`.
+- **Tests fail with "Could not find a valid Docker environment".** Start Docker Desktop (or the Docker daemon) and run the tests again.
 - **The app does not start and mentions a missing placeholder.** `JWT_SECRET` or `GEMINI_API_KEY` is not defined in `.env`, or the app was not started from the project root.
 - **AI endpoints return 429.** The per-user rate limit was reached. Wait for the number of seconds in the `Retry-After` header or raise the limits in `application.properties`.
 - **No e-mails arrive.** Check that Mailpit is running (`docker compose ps`) and open <http://localhost:8025>. For a real SMTP server check the `MAIL_*` values in `.env`. Failed sends are retried 3 times and then logged.
@@ -474,14 +587,15 @@ intelliCar
 │   │   ├── kafka/         Event publisher, topic names
 │   │   │   └── consumer/  Kafka listeners
 │   │   ├── mapper/        MapStruct mappers
-│   │   ├── notification/  E-mail templates and sender
 │   │   ├── model/         JPA entities
+│   │   ├── notification/  E-mail templates and sender
 │   │   ├── ratelimit/     AI rate limiter, Redis counter and interceptor
 │   │   ├── repository/    Spring Data repositories and JPA specifications
 │   │   └── service/       Service interfaces and implementations (impl/)
 │   └── resources
 │       └── application.properties
-├── src/test               Tests
+├── src/test               Unit and integration tests (Testcontainers), test profile
+├── .github/workflows      GitHub Actions CI pipeline
 ├── Dockerfile             Multi-stage build (Maven, then a slim JRE image)
 ├── docker-compose.yaml    PostgreSQL, Redis, Kafka, Mailpit and backend
 ├── .env.example           Environment variable template
@@ -501,21 +615,17 @@ intelliCar
 - **Ownership checks in the service layer.** Only the seller of a car can update it, manage its images, or answer its offers.
 - **Rate limits in Redis, fail-open.** Counters are shared by all application instances. If Redis is down, AI calls are allowed instead of blocked.
 - **Notifications decoupled from requests.** E-mails are sent by a Kafka consumer, so a slow or unavailable mail server never slows down or breaks an offer request.
+- **Tests against real infrastructure.** Integration tests use real PostgreSQL, Redis and Kafka containers instead of mocks or in-memory substitutes, so the SQL, cache serialization and Kafka flows are tested the way they run in production.
 - **Docker image.** Multi-stage build, runs as a non-root user and respects container memory limits.
 
 ---
 
-## Roadmap
+## Future Work
 
-- [x] Event-driven processing with Kafka
-- [x] AI budget assistant: rank the best cars for a user's budget (Spring AI)
-- [x] AI price estimation: suggest a price range from similar listings (Spring AI)
-- [x] Rate limiting for the AI endpoints
-- [x] Real e-mail delivery for offer notifications
-- [ ] Push notifications (needs a client app and device tokens)
-- [ ] Integration tests with Testcontainers (PostgreSQL, Redis, Kafka)
-- [ ] CI pipeline with GitHub Actions
-- [ ] Admin moderation flow for `PENDING_REVIEW` listings
+The platform is functionally complete for its core scenarios. Natural next steps are:
+
+- **Admin moderation.** The `PENDING_REVIEW` listing status and the `ADMIN` role already exist in the domain model. A review flow where administrators approve or reject new listings would complete them.
+- **Push notifications.** Offer notifications are currently delivered by e-mail. Push delivery needs a client application and device tokens, and would plug into the same Kafka consumer.
 
 ---
 
