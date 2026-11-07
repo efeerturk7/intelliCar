@@ -3,6 +3,7 @@ package com.efeerturk.intelliCar.handler;
 import com.efeerturk.intelliCar.enums.MessageType;
 import com.efeerturk.intelliCar.exception.*;
 import com.efeerturk.intelliCar.exception.Exception;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
@@ -28,12 +29,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(createApiError(ex.getMessage(), request));
     }
 
-
+    // AI: Yapay zeka servisi sorunlarında 400 yerine 503 (Service Unavailable) dön.
+    // Daha özel (alt sınıf) handler olduğu için BaseException handler'ından önce seçilir.
     @ExceptionHandler(value = { AiServiceException.class })
     public ResponseEntity<ApiError<String>> handleAiServiceException(AiServiceException ex, WebRequest request) {
         ApiError<String> apiError = createApiError(ex.getMessage(), request);
         apiError.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(apiError);
+    }
+
+    @ExceptionHandler(value = { RateLimitExceededException.class })
+    public ResponseEntity<ApiError<String>> handleRateLimit(RateLimitExceededException ex, WebRequest request) {
+        ApiError<String> apiError = createApiError(ex.getMessage(), request);
+        apiError.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(apiError);
     }
 
     @ExceptionHandler(value = MethodArgumentNotValidException.class)

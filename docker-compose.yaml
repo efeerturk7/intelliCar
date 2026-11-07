@@ -1,4 +1,5 @@
-
+# Sırlar proje kökündeki .env dosyasından okunur (Compose bunu otomatik yapar).
+# .env yoksa: cp .env.example .env  ve değerleri doldur.
 
 services:
   # 1. PostgreSQL Veritabanı
@@ -16,7 +17,7 @@ services:
     networks:
       - intellicar-network
     healthcheck:
-
+      # $$ = değişken compose'da değil, container içinde çözülsün
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
@@ -38,7 +39,10 @@ services:
       timeout: 3s
       retries: 5
 
-
+  # 3. Kafka (KRaft modu, Zookeeper yok)
+  # İki listener var:
+  #   - localhost:9092 -> bilgisayarında (IntelliJ'den) çalışan uygulama için
+  #   - kafka:29092    -> docker içindeki backend container'ı için
   kafka:
     image: apache/kafka:latest
     container_name: intellicar-kafka
@@ -68,6 +72,17 @@ services:
       retries: 10
       start_period: 20s
 
+  # 4. Mailpit: geliştirme için sahte SMTP sunucusu. Giden e-postaları yakalar, UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: intellicar-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - intellicar-network
+
+  # 5. intelliCar Backend Servisi (Opsiyonel: İster terminalden, ister IntelliJ'den çalıştır)
   backend:
     build:
       context: .
@@ -85,6 +100,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET .env içinde tanımlı olmalı}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY .env içinde tanımlı olmalı}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@intellicar.local}
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +114,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - intellicar-network
 

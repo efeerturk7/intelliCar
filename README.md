@@ -49,9 +49,11 @@ This project was developed as a graduation project.
 - **AI budget assistant:** ranks the best cars for a given budget and preferences, with a score, a reason, pros and cons for each car.
 - **AI price estimation:** suggests a selling price range for the user's own car by analyzing similar listings.
 - **Asynchronous processing with Kafka:** seller and buyer notifications, listing view counting, and automatic expiry of pending offers when a car is sold or deactivated.
+- **E-mail notifications:** the seller is e-mailed when a new offer arrives and the buyer when the offer is accepted or rejected. Mails are sent asynchronously from a Kafka consumer.
+- **AI rate limiting:** per-user limits on the AI endpoints (default 5 per minute and 50 per day) protect the Gemini quota.
 - **Caching:** car detail responses are cached in Redis and evicted on update or delete.
 - **API documentation:** interactive Swagger UI generated from the code.
-- **Containerized setup:** PostgreSQL, Redis, Kafka and the backend start with a single Docker Compose command.
+- **Containerized setup:** PostgreSQL, Redis, Kafka and the backend start with a single Docker Compose command, together with Mailpit, a local inbox for development e-mails.
 
 ---
 
@@ -67,6 +69,7 @@ This project was developed as a graduation project.
 | Database | PostgreSQL 15 | Primary relational data store |
 | Cache | Redis 7, Spring Cache | Caching of listing details |
 | Messaging | Apache Kafka (KRaft mode), Spring for Apache Kafka | Asynchronous, event-driven processing |
+| E-mail | Spring Boot Mail (`JavaMailSender`), Mailpit for development | Offer notifications |
 | Security | Spring Security, JJWT 0.12.5, BCrypt | Stateless JWT authentication, password hashing |
 | Validation | Jakarta Bean Validation | Request validation |
 | Mapping | MapStruct 1.5.5 | Entity to DTO mapping |
@@ -92,6 +95,7 @@ flowchart LR
     S -- publish events --> K{{Kafka}}
     K -- consume --> CO[Consumers]
     CO --> R
+    CO -- e-mail --> SMTP([SMTP server / Mailpit])
     S -- prompts --> AI[Spring AI ChatClient]
     AI <--> G([Google Gemini])
 ```
@@ -194,6 +198,7 @@ The response contains `minPrice`, `suggestedPrice`, `maxPrice`, `currency`, `con
 - **Structured output.** Spring AI maps the model response to Java records, so malformed answers fail early.
 - **Prompt injection resistance.** User preferences and listing descriptions are sent as data, and the prompt tells the model not to follow instructions inside them.
 - **Authenticated only.** Every AI call costs quota, so the endpoints require a valid JWT.
+- **Rate limited.** Each user may make 5 AI requests per minute and 50 per 24 hours (shared by both AI endpoints). Counters live in Redis. Beyond the limit the API returns `429 Too Many Requests` with a `Retry-After` header. If Redis is unreachable, requests are allowed rather than blocked.
 - **Graceful failure.** If Gemini is unavailable, the recommendation endpoint returns `503`, and the price endpoint falls back to the statistical range.
 - **Low temperature** (0.2) and a short retry policy keep answers consistent and failures fast.
 
@@ -205,7 +210,7 @@ Slow or secondary work is moved out of the request path and handled asynchronous
 
 | Topic | Published by | Consumer (group) | What it does |
 |---|---|---|---|
-| `offer-events` | Offer service when an offer is created or answered | `OfferNotificationConsumer` (`notification-group`) | Notifies the seller of a new offer and the buyer of the decision. Currently logs the notification; plug in e-mail, SMS or push here. |
+| `offer-events` | Offer service when an offer is created or answered | `OfferNotificationConsumer` (`notification-group`) | E-mails the seller about a new offer and the buyer about the decision. |
 | `car-view-events` | Car controller on every listing view | `CarViewConsumer` (`view-counter-group`) | Increments the view counter with an atomic SQL update. |
 | `car-status-events` | Car service when the status changes or a listing is deleted | `CarStatusConsumer` (`offer-expiry-group`) | Sets all `PENDING` offers of a car to `EXPIRED` when it becomes `SOLD` or `INACTIVE`. |
 
@@ -213,6 +218,8 @@ Key points:
 
 - **Publish after commit.** Events are sent only after the database transaction commits, so a rolled-back request never produces a phantom event.
 - **Resilient producer.** If Kafka is unreachable, the request still succeeds and the failure is logged (`max.block.ms` is limited to 3 seconds).
+- **Retries.** If a consumer fails (for example the mail server is briefly down), the record is retried 3 times, 5 seconds apart, then logged and skipped.
+- **No e-mail addresses in events.** Events carry user ids only. The consumer reads the address from the database at send time, so personal data does not sit in Kafka.
 - **Ordering per entity.** The entity id is used as the message key, so all events of one offer or car land in the same partition and stay ordered.
 - **View counting outside the cache.** The detail endpoint is cached, so a cache hit never reaches the service method. The view event is therefore published from the controller, which runs on every request.
 - **JSON events** are defined as Java records in the `event` package.
@@ -302,6 +309,8 @@ GET /intelliCar/api/v1/car?brand=bmw&city=ankara&maxPrice=1500000&fuelType=DIESE
 | POST | `/ai/recommend` | Required | Best cars for a budget and preferences |
 | POST | `/ai/price-estimate` | Required | Suggested selling price range for your car |
 
+Both AI endpoints are limited per user. When the limit is exceeded they return `429` with a `Retry-After` header (seconds).
+
 ---
 
 ## Getting Started
@@ -343,7 +352,7 @@ docker compose up -d --build
 **Option B: infrastructure in Docker, application from your IDE or terminal**
 
 ```bash
-docker compose up -d postgres redis kafka
+docker compose up -d postgres redis kafka mailpit
 ./mvnw spring-boot:run
 ```
 
@@ -359,6 +368,10 @@ In Swagger UI, call `/auth/register` or `/auth/login`, copy the `accessToken`, c
 ### 5. Try the AI features
 
 The AI endpoints work on existing listings, and your own listings are excluded from the results. So create at least two users: one adds a few listings (`POST /car`), the other calls `/ai/recommend` or `/ai/price-estimate`. The more listings of the same brand exist, the better the price estimate.
+
+### 6. See the e-mail notifications
+
+By default e-mails are sent to Mailpit, a development inbox that catches every message and delivers nothing to real people. Open <http://localhost:8025>, then let one user create an offer on another user's listing (the seller gets a mail) and let the seller accept or reject it (the buyer gets a mail).
 
 ### Useful commands
 
@@ -391,6 +404,26 @@ Secrets are never stored in the repository. They are read from a local `.env` fi
 | `JWT_SECRET` | HMAC signing key for JWTs, at least 32 characters | output of `openssl rand -hex 32` |
 | `GEMINI_API_KEY` | Google Gemini API key | from Google AI Studio |
 | `GEMINI_MODEL` | (Optional) Gemini model name | default `gemini-3.8-flash` |
+| `MAIL_HOST` / `MAIL_PORT` | (Optional) SMTP server | default Mailpit (`mailpit:1025` in Docker, `localhost:1025` otherwise) |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | (Optional) SMTP credentials | Gmail app password |
+| `MAIL_SMTP_AUTH` / `MAIL_STARTTLS` | (Optional) Enable authentication and STARTTLS | `true` for Gmail |
+| `MAIL_FROM` | (Optional) Sender address | default `no-reply@intellicar.local` |
+
+#### Sending real e-mails
+
+Create an app password for your Google account (<https://myaccount.google.com/apppasswords>) and add this to `.env`:
+
+```
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=you@gmail.com
+MAIL_PASSWORD=your_app_password
+MAIL_SMTP_AUTH=true
+MAIL_STARTTLS=true
+MAIL_FROM=you@gmail.com
+```
+
+Mails then go to the addresses users registered with.
 
 The application refuses to start if `JWT_SECRET` or `GEMINI_API_KEY` is missing, so a misconfiguration is noticed immediately.
 
@@ -403,6 +436,10 @@ Other settings live in `src/main/resources/application.properties`:
 | `spring.ai.google.genai.chat.temperature` | `0.2` | Lower values give more consistent answers |
 | `spring.kafka.bootstrap-servers` | `localhost:9092` | Kafka address (`kafka:29092` inside Docker) |
 | `spring.data.redis.host` / `port` | `localhost` / `6379` | Redis address |
+| `intellicar.ai.rate-limit.per-minute` | `5` | AI requests per user per minute (`0` disables this limit) |
+| `intellicar.ai.rate-limit.per-day` | `50` | AI requests per user per 24 hours (`0` disables this limit) |
+| `intellicar.ai.rate-limit.enabled` | `true` | Turns AI rate limiting on or off |
+| `intellicar.notification.email.enabled` | `true` | Turns e-mail notifications on or off |
 
 When the backend runs inside Docker Compose, connection settings are overridden through environment variables in `docker-compose.yaml`.
 
@@ -413,6 +450,8 @@ When the backend runs inside Docker Compose, connection settings are overridden 
 - **The app cannot connect to PostgreSQL or fails with a Hibernate dialect error.** The database is not reachable. Check `docker compose ps`. PostgreSQL only applies `POSTGRES_PASSWORD` when its volume is first created, so after changing the password in `.env` run `docker compose down -v` and start again (this deletes the data).
 - **Gemini returns "model not found" (404).** Model names are retired over time. Pick a current model in Google AI Studio and set `GEMINI_MODEL` in `.env`.
 - **The app does not start and mentions a missing placeholder.** `JWT_SECRET` or `GEMINI_API_KEY` is not defined in `.env`, or the app was not started from the project root.
+- **AI endpoints return 429.** The per-user rate limit was reached. Wait for the number of seconds in the `Retry-After` header or raise the limits in `application.properties`.
+- **No e-mails arrive.** Check that Mailpit is running (`docker compose ps`) and open <http://localhost:8025>. For a real SMTP server check the `MAIL_*` values in `.env`. Failed sends are retried 3 times and then logged.
 - **AI endpoints return 503.** Gemini is unavailable or the quota is exhausted. Try again later.
 
 ---
@@ -435,14 +474,16 @@ intelliCar
 │   │   ├── kafka/         Event publisher, topic names
 │   │   │   └── consumer/  Kafka listeners
 │   │   ├── mapper/        MapStruct mappers
+│   │   ├── notification/  E-mail templates and sender
 │   │   ├── model/         JPA entities
+│   │   ├── ratelimit/     AI rate limiter, Redis counter and interceptor
 │   │   ├── repository/    Spring Data repositories and JPA specifications
 │   │   └── service/       Service interfaces and implementations (impl/)
 │   └── resources
 │       └── application.properties
 ├── src/test               Tests
 ├── Dockerfile             Multi-stage build (Maven, then a slim JRE image)
-├── docker-compose.yaml    PostgreSQL, Redis, Kafka and backend
+├── docker-compose.yaml    PostgreSQL, Redis, Kafka, Mailpit and backend
 ├── .env.example           Environment variable template
 └── pom.xml
 ```
@@ -458,6 +499,8 @@ intelliCar
 - **Soft delete.** Deleting a listing sets its status to `INACTIVE` instead of removing rows, which keeps offer history intact.
 - **Specification-based filtering.** Filters are optional and combined dynamically into a single query. Only `ACTIVE` listings appear in search results.
 - **Ownership checks in the service layer.** Only the seller of a car can update it, manage its images, or answer its offers.
+- **Rate limits in Redis, fail-open.** Counters are shared by all application instances. If Redis is down, AI calls are allowed instead of blocked.
+- **Notifications decoupled from requests.** E-mails are sent by a Kafka consumer, so a slow or unavailable mail server never slows down or breaks an offer request.
 - **Docker image.** Multi-stage build, runs as a non-root user and respects container memory limits.
 
 ---
@@ -467,8 +510,9 @@ intelliCar
 - [x] Event-driven processing with Kafka
 - [x] AI budget assistant: rank the best cars for a user's budget (Spring AI)
 - [x] AI price estimation: suggest a price range from similar listings (Spring AI)
-- [ ] Rate limiting for the AI endpoints
-- [ ] Replace the notification log with real e-mail or push delivery
+- [x] Rate limiting for the AI endpoints
+- [x] Real e-mail delivery for offer notifications
+- [ ] Push notifications (needs a client app and device tokens)
 - [ ] Integration tests with Testcontainers (PostgreSQL, Redis, Kafka)
 - [ ] CI pipeline with GitHub Actions
 - [ ] Admin moderation flow for `PENDING_REVIEW` listings
