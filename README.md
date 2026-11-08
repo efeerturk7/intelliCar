@@ -56,7 +56,7 @@ This project was developed as a graduation project.
 ### AI assistant
 
 - **Budget assistant.** Ranks the best cars for a given budget and preferences, with a score, a reason, pros and cons for each car. See [AI Features](#ai-features).
-- **Price estimation.** Suggests a selling price range for the user's own car by analyzing similar listings on the platform.
+- **Price estimation.** Suggests a selling price range for the user's own car. The price is calculated from listings of the same model and year, compared by mileage, and then adjusted by the AI for damage record, replaced parts and paint.
 - **Guardrails.** The model only sees real listings, its answers are validated against them, and a statistical fallback covers model outages. See [Safety and reliability](#safety-and-reliability-of-the-ai-layer).
 - **Fair use.** Per-user rate limits protect the model quota. See [AI Rate Limiting](#ai-rate-limiting).
 
@@ -185,36 +185,79 @@ Example response (shortened):
 
 `POST /intelliCar/api/v1/ai/price-estimate`
 
-The user describes the car they want to sell. The assistant analyzes similar listings of the same brand and suggests a price range.
+The user describes the car they want to sell, including its condition. The assistant compares it with real listings and suggests a price range.
+
+**Example.** A user enters a *BMW M5 CS, 2020, 134,000 km*. The platform has three listings of the same model and year: 100,000 km for 3,000,000 TL, 150,000 km for 2,700,000 TL and 300,000 km for 2,200,000 TL. The base price is calculated in code from the two listings closest in mileage, so the result lies between them: 100,000 km is more expensive, 150,000 km is cheaper, and 134,000 km is priced proportionally in between (2,796,000 TL). The 300,000 km listing does not distort it.
 
 How it works:
 
 1. Active and sold listings of the same brand are loaded (the user's own listings are excluded).
-2. A deterministic analyzer (plain Java, no AI) picks up to 15 listings most similar to the car, scored by model, year, mileage, fuel type, transmission and city. It calculates the market statistics: minimum, median, maximum and the lower/upper quartile.
-3. Gemini adjusts the range for differences in year, mileage and condition, using the statistics and the listings as context.
-4. The suggestion is checked before it is returned: it must be ordered, positive, close to the prices of the similar listings, and not unreasonably wide. If Gemini is down or gives an implausible answer, the statistical range is returned instead (`aiAssisted: false`).
+2. **Base price (plain Java, no AI).** The analyzer looks for listings with the same model and the same model year:
+   - **2 or more:** the price is interpolated by mileage between the two listings closest in mileage. If the car has less or more mileage than all listings, the price is extended with the slope of the nearest listings and capped at 15% above or below the closest listing. Method: `MILEAGE_BASED`.
+   - **1:** that listing's price is used. Method: `SINGLE_COMPARABLE`.
+   - **None:** the most similar listings of the brand (scored by model, year, mileage, fuel type, transmission and city) are used and the median price is the base. Method: `SIMILAR_LISTINGS`.
+
+   Model names must match exactly (ignoring case and extra spaces), so an *M5* listing is not counted as an *M5 CS*.
+3. **Condition analysis (AI).** Gemini reads the description of the user's car and the descriptions of the comparable listings. It looks for the damage record, replaced parts and painted parts, compares the car's condition with the comparables and adjusts the base price. A clean car (no damage record, no paint, no replaced parts) is priced slightly higher, a car with a damage record or painted or replaced parts is priced lower. It also reports the effect as `conditionImpact`: `POSITIVE`, `NEUTRAL`, `NEGATIVE` or `UNKNOWN` (no condition information in the description).
+4. **Validation.** The suggestion is checked in code before it is returned. With mileage-based pricing, the model may move the price at most 35% down or 10% up, and the direction must match the condition analysis: a worse condition cannot be priced above the base price, a better condition cannot be priced below it, and without condition information the price must stay within 10% of the base price. If the answer is inconsistent, or Gemini is unavailable, the base price and its statistical range are returned (`aiAssisted: false`) and the response says that the condition was not reflected.
 5. If there is no listing of that brand, the API responds with `400`, because there is nothing to compare against.
 
-The `confidence` field (`LOW`, `MEDIUM`, `HIGH`) is calculated in code from the number of listings of the same model (3 or more is `MEDIUM`, 8 or more is `HIGH`). It is not asked from the model. Prices are rounded to the nearest 1,000.
+The `confidence` field (`LOW`, `MEDIUM`, `HIGH`) is calculated in code and is never asked from the model:
+
+| Situation | Confidence |
+|---|---|
+| 4 or more listings of the same model and year | `HIGH` |
+| 2 or 3 listings of the same model and year | `MEDIUM` |
+| 1 listing of the same model and year | `LOW` |
+| No listing of the same model and year, 3 or more of the same model | `MEDIUM` |
+| Otherwise | `LOW` |
+
+If the car's mileage is outside the mileage range of the listings, the confidence drops one level. Prices are rounded to the nearest 1,000.
 
 Example request:
 
 ```json
 {
-  "brand": "Toyota",
-  "model": "Corolla",
-  "year": 2019,
-  "mileage": 85000,
+  "brand": "BMW",
+  "model": "M5 CS",
+  "year": 2020,
+  "mileage": 134000,
   "fuelType": "GASOLINE",
   "transmission": "AUTOMATIC",
-  "city": "Ankara",
-  "description": "No paint, no accident record, regular service"
+  "city": "Istanbul",
+  "description": "Hasar kaydı yok, boyasız, değişen parça yok. Düzenli yetkili servis bakımlı."
 }
 ```
 
-The response contains `minPrice`, `suggestedPrice`, `maxPrice`, `currency`, `confidence`, `aiAssisted`, an explanation, the main price factors, the market statistics and the comparable listings that were used.
+Example response (shortened):
 
-> The estimate is based on asking prices of listings on this platform. Actual sale prices and the real condition of a car can differ.
+```json
+{
+  "minPrice": 2790000,
+  "suggestedPrice": 2900000,
+  "maxPrice": 3010000,
+  "currency": "TRY",
+  "confidence": "MEDIUM",
+  "aiAssisted": true,
+  "method": "MILEAGE_BASED",
+  "mileageBasedPrice": 2796000,
+  "condition": {
+    "impact": "POSITIVE",
+    "summary": "Hasar kaydı, boya ve değişen parça yok, yetkili servis bakımlı."
+  },
+  "explanation": "...",
+  "factors": ["..."],
+  "market": { "comparablesCount": 3, "sameModelCount": 3, "exactMatchCount": 3, "min": 2200000, "median": 2700000, "max": 3000000 },
+  "comparables": [{ "mileage": 100000, "price": 3000000, "exactMatch": true }],
+  "disclaimer": "..."
+}
+```
+
+`mileageBasedPrice` is the price from listings and mileage alone. `suggestedPrice` differs from it only by the effect of the car's condition.
+
+**Tip for listings.** The description of a listing is read by the price assistant. Sellers should write the damage record (and amount), replaced parts and painted parts in the description, for example *"Tramer kaydı yok, boyasız, değişensiz"* or *"Sol ön çamurluk boyalı, 45.000 TL hasar kaydı"*. The more accurate the descriptions, the better the comparison.
+
+> The estimate is based on asking prices of listings on this platform and on what the descriptions say. Actual sale prices and the real condition of a car (expert inspection) can differ.
 
 ### Safety and reliability of the AI layer
 
@@ -533,6 +576,7 @@ The tests need **Docker** but nothing else: they start their own PostgreSQL, Red
 | Test class | Type | What it covers |
 |---|---|---|
 | `AiRateLimiterTest`, `EmailTemplatesTest` | Unit (no Docker) | Rate limit windows and e-mail texts, including header injection protection |
+| `PriceMarketAnalyzerTest` | Unit (no Docker) | Mileage-based pricing (the BMW M5 CS example), exact-match rules, confidence levels, validation of the AI suggestion against the condition analysis |
 | `AuthIntegrationTest` | Integration | Register, login, refresh token, logout, protected endpoints |
 | `CarIntegrationTest` | Integration | Listing CRUD, filtering, ownership rules, Redis-cached detail, view counting through Kafka |
 | `OfferFlowIntegrationTest` | Integration | Offer rules, accept and reject, e-mails sent through Kafka, offers expiring when a car is sold |
@@ -607,7 +651,7 @@ intelliCar
 ## Design Decisions
 
 - **Retrieve first, then let the model reason.** The AI only sees listings that the database selected, and everything it returns is validated against that data.
-- **Deterministic code for numbers, AI for judgment.** Market statistics, plausibility checks and confidence levels are calculated in plain Java and unit-testable without a model.
+- **Deterministic code for numbers, AI for judgment.** The base price (interpolation by mileage), statistics, plausibility checks and confidence levels are calculated in plain Java and unit-testable without a model. The AI only reads descriptions (damage record, replaced parts, paint) and adjusts the price within limits that the code enforces.
 - **Stateless authentication.** Short-lived JWT access tokens plus a refresh token stored in the database, so a session can be revoked server-side (deleted on logout or when expired).
 - **Records for DTOs and events.** Immutable, concise and easy to serialize.
 - **Soft delete.** Deleting a listing sets its status to `INACTIVE` instead of removing rows, which keeps offer history intact.
