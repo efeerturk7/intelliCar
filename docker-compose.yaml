@@ -99,7 +99,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET .env içinde tanımlı olmalı}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY .env içinde tanımlı olmalı}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       MAIL_HOST: ${MAIL_HOST:-mailpit}
       MAIL_PORT: ${MAIL_PORT:-1025}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
@@ -107,6 +107,10 @@ services:
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
       MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
       MAIL_FROM: ${MAIL_FROM:-no-reply@intellicar.local}
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_PUBLIC_BASE_URL: ${UPLOAD_PUBLIC_BASE_URL:-}
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +127,7 @@ volumes:
   postgres_data:
   redis_data:
   kafka_data:
+  uploads_data:
 
 networks:
   intellicar-network:

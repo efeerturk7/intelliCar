@@ -12,10 +12,10 @@
 ![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-KRaft-231F20?logo=apachekafka)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
-intelliCar is the backend of a car gallery platform where sellers publish vehicle listings and buyers browse, filter and make price offers. On top of the marketplace, an AI assistant helps both sides:
+intelliCar is the backend of a car gallery platform where users publish vehicle listings and browse, filter and make price offers on other users' listings. There is a single account type: anyone who registers can list a car or make an offer. On top of the marketplace, an AI assistant helps both sides:
 
-- **Buyers** tell the assistant their budget and get a ranked list of the best matching cars from the real listings.
-- **Sellers** describe the car they own and get a suggested price range, based on similar listings on the platform.
+- **Car shoppers** tell the assistant their budget and get a ranked list of the best matching cars from the real listings.
+- **Car owners** describe the car they own and get a suggested price range, based on similar listings on the platform.
 
 Behind the API, domain events (new offers, listing views, status changes) are processed asynchronously through Kafka, sellers and buyers are notified by e-mail, frequently read data is cached in Redis, and the AI endpoints are protected by per-user rate limits. The whole system is covered by integration tests that run against real PostgreSQL, Redis and Kafka containers, and every change is verified by a CI pipeline.
 
@@ -48,8 +48,8 @@ This project was developed as a graduation project.
 
 ### Marketplace
 
-- **Authentication and authorization.** Registration, login, short-lived JWT access tokens, refresh tokens stored server-side, logout that revokes the session, and role-based users (`BUYER`, `SELLER`, `ADMIN`).
-- **Listings.** Sellers create, update and soft-delete car listings with multiple images and a primary image.
+- **Authentication and authorization.** Registration, login, short-lived JWT access tokens, refresh tokens stored server-side, logout that revokes the session, and a single user type: nobody has to choose between buyer and seller at registration (the `ADMIN` role exists only for administration and cannot be requested).
+- **Listings.** Users create, update and soft-delete car listings with multiple images and a primary image. Images are uploaded from the user's device and served from `/uploads/`.
 - **Search and filtering.** Dynamic, paginated filtering by brand, model, city, price range, year range, fuel type and transmission.
 - **Offers.** Buyers make offers on active listings and sellers accept or reject them. Business rules prevent offers on your own car, on inactive listings, and duplicate pending offers.
 
@@ -194,12 +194,15 @@ How it works:
 1. Active and sold listings of the same brand are loaded (the user's own listings are excluded).
 2. **Base price (plain Java, no AI).** The analyzer looks for listings with the same model and the same model year:
    - **2 or more:** the price is interpolated by mileage between the two listings closest in mileage. If the car has less or more mileage than all listings, the price is extended with the slope of the nearest listings and capped at 15% above or below the closest listing. Method: `MILEAGE_BASED`.
-   - **1:** that listing's price is used. Method: `SINGLE_COMPARABLE`.
-   - **None:** the most similar listings of the brand (scored by model, year, mileage, fuel type, transmission and city) are used and the median price is the base. Method: `SIMILAR_LISTINGS`.
+   - **1:** that listing's price, adjusted by the mileage difference. Method: `SINGLE_COMPARABLE`.
+   - **None:** prices of the most similar listings (same model if any, otherwise the brand) are adjusted for model year and mileage differences, and the median is the base. Method: `SIMILAR_LISTINGS`.
 
    Model names must match exactly (ignoring case and extra spaces), so an *M5* listing is not counted as an *M5 CS*.
+
+   **Direction rule.** A newer car with lower mileage is never priced below an older, higher-mileage listing of the same model, and an older car with higher mileage is never priced above a newer, lower-mileage one. In order: newer + low mileage is the most expensive, newer + high mileage and older + low mileage are in the middle, older + high mileage is the cheapest. Example: for an *Audi A4 2021, 0 km*, a listing of *Audi A4 2020, 119,500 km, 1,760,000 TL* is a lower bound. The adjustment rates (5% per model year, 1% per 10,000 km, each capped at 30%) are assumptions, not values learned from market data.
+
 3. **Condition analysis (AI).** Gemini reads the description of the user's car and the descriptions of the comparable listings. It looks for the damage record, replaced parts and painted parts, compares the car's condition with the comparables and adjusts the base price. A clean car (no damage record, no paint, no replaced parts) is priced slightly higher, a car with a damage record or painted or replaced parts is priced lower. It also reports the effect as `conditionImpact`: `POSITIVE`, `NEUTRAL`, `NEGATIVE` or `UNKNOWN` (no condition information in the description).
-4. **Validation.** The suggestion is checked in code before it is returned. With mileage-based pricing, the model may move the price at most 35% down or 10% up, and the direction must match the condition analysis: a worse condition cannot be priced above the base price, a better condition cannot be priced below it, and without condition information the price must stay within 10% of the base price. If the answer is inconsistent, or Gemini is unavailable, the base price and its statistical range are returned (`aiAssisted: false`) and the response says that the condition was not reflected.
+4. **Validation.** The suggestion is checked in code before it is returned. The model may move the price at most 35% down or 10% up (the range may not be wider than 1.4x), and the direction must match the condition analysis: a worse condition cannot be priced above the base price, a better condition cannot be priced below it (or below a newer-and-lower-mileage-listing bound), and without condition information the price must stay within 5% of the base price and inside the direction bounds. If the answer is inconsistent, or Gemini is unavailable, the base price and its statistical range are returned (`aiAssisted: false`) and the response says that the condition was not reflected.
 5. If there is no listing of that brand, the API responds with `400`, because there is nothing to compare against.
 
 The `confidence` field (`LOW`, `MEDIUM`, `HIGH`) is calculated in code and is never asked from the model:
@@ -356,7 +359,7 @@ How it works:
 
 Enumerations:
 
-- `UserRole`: `BUYER`, `SELLER`, `ADMIN`
+- `UserRole`: `USER` (default for every new account), `ADMIN`. `BUYER` and `SELLER` are legacy values kept so that old rows can still be read.
 - `CarStatus`: `ACTIVE`, `PENDING_REVIEW`, `SOLD`, `INACTIVE`
 - `OfferStatus`: `PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`
 - `FuelType`: `GASOLINE`, `DIESEL`, `HYBRID`, `ELECTRIC`
@@ -374,7 +377,7 @@ Protected endpoints require the header `Authorization: Bearer <access_token>`.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/register` | Public | Create an account and receive tokens |
+| POST | `/auth/register` | Public | Create an account (email, password, firstName, lastName, phone) and receive tokens |
 | POST | `/auth/login` | Public | Log in and receive tokens |
 | POST | `/auth/refresh-token` | Public | Exchange a refresh token for a new token pair |
 | POST | `/auth/logout` | Required | Revoke the user's refresh token |
@@ -407,9 +410,21 @@ GET /intelliCar/api/v1/car?brand=bmw&city=ankara&maxPrice=1500000&fuelType=DIESE
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/carImage/{carId}` | Owner | Add images to a listing |
+| POST | `/carImage/{carId}/upload` | Owner | Upload image files from the device (`multipart/form-data`) |
+| POST | `/carImage/{carId}` | Owner | Add images by URL (JSON) |
 | PATCH | `/carImage/{carId}/images/{imageId}/primary` | Owner | Set the primary image |
-| DELETE | `/carImage/{imageId}` | Owner | Delete an image |
+| DELETE | `/carImage/{imageId}` | Owner | Delete an image (and its file) |
+| GET | `/uploads/{file}` | Public | Serves an uploaded image |
+
+**Uploading images.** Send `multipart/form-data` with one or more files. The form field name does not matter (`files`, `file`, `image`...). Optional form field `isPrimary=true` makes the first file the cover image; if the listing has no cover image yet, the first file becomes it anyway.
+
+```
+curl -X POST http://localhost:8080/intelliCar/api/v1/carImage/{carId}/upload \
+  -H "Authorization: Bearer <accessToken>" \
+  -F "files=@front.jpg" -F "files=@interior.png"
+```
+
+Rules: JPEG, PNG or WEBP only (the type is detected from the file content, not from the name or `Content-Type`), at most 5 MB per file and 15 images per listing. Files get random names and are stored in the folder set by `UPLOAD_DIR` (a Docker volume, `uploads_data`, when started with Compose). The response contains absolute image URLs; set `UPLOAD_PUBLIC_BASE_URL` if the API is reachable from the frontend under a different address. Oversized files return `413`, invalid files `400`.
 
 ### Offers
 
@@ -443,7 +458,7 @@ Both AI endpoints are limited per user. When the limit is exceeded they return `
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/efeerturk7/intelliCar.git
+git clone https://github.com/<your-username>/intelliCar.git
 cd intelliCar
 ```
 
@@ -522,6 +537,8 @@ Secrets are never stored in the repository. They are read from a local `.env` fi
 | `JWT_SECRET` | HMAC signing key for JWTs, at least 32 characters | output of `openssl rand -hex 32` |
 | `GEMINI_API_KEY` | Google Gemini API key | from Google AI Studio |
 | `GEMINI_MODEL` | (Optional) Gemini model name | default `gemini-3.8-flash` |
+| `UPLOAD_DIR` | (Optional) Folder for uploaded listing images | default `uploads` (`/app/uploads` volume in Compose) |
+| `UPLOAD_PUBLIC_BASE_URL` | (Optional) Public address of the API used in image URLs | default: taken from the request |
 | `MAIL_HOST` / `MAIL_PORT` | (Optional) SMTP server | default Mailpit (`mailpit:1025` in Docker, `localhost:1025` otherwise) |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | (Optional) SMTP credentials | Gmail app password |
 | `MAIL_SMTP_AUTH` / `MAIL_STARTTLS` | (Optional) Enable authentication and STARTTLS | `true` for Gmail |
@@ -577,7 +594,9 @@ The tests need **Docker** but nothing else: they start their own PostgreSQL, Red
 |---|---|---|
 | `AiRateLimiterTest`, `EmailTemplatesTest` | Unit (no Docker) | Rate limit windows and e-mail texts, including header injection protection |
 | `PriceMarketAnalyzerTest` | Unit (no Docker) | Mileage-based pricing (the BMW M5 CS example), exact-match rules, confidence levels, validation of the AI suggestion against the condition analysis |
-| `AuthIntegrationTest` | Integration | Register, login, refresh token, logout, protected endpoints |
+| `AuthIntegrationTest` | Integration | Register (a client-sent role is ignored), login, refresh token, logout, protected endpoints |
+| `CarImageUploadIntegrationTest` | Integration | Image upload, public serving, type and owner checks, file removal on delete |
+| `ImageStorageTest` | Unit | File type detection, random names, size limits, safe deletion |
 | `CarIntegrationTest` | Integration | Listing CRUD, filtering, ownership rules, Redis-cached detail, view counting through Kafka |
 | `OfferFlowIntegrationTest` | Integration | Offer rules, accept and reject, e-mails sent through Kafka, offers expiring when a car is sold |
 | `AiRateLimitIntegrationTest` | Integration | `429` and `Retry-After`, per-user quota, shared quota of both AI endpoints, counter in Redis |
@@ -656,7 +675,7 @@ intelliCar
 - **Records for DTOs and events.** Immutable, concise and easy to serialize.
 - **Soft delete.** Deleting a listing sets its status to `INACTIVE` instead of removing rows, which keeps offer history intact.
 - **Specification-based filtering.** Filters are optional and combined dynamically into a single query. Only `ACTIVE` listings appear in search results.
-- **Ownership checks in the service layer.** Only the seller of a car can update it, manage its images, or answer its offers.
+- **Ownership checks in the service layer.** Only the owner of a car can update it, manage its images, or answer its offers.
 - **Rate limits in Redis, fail-open.** Counters are shared by all application instances. If Redis is down, AI calls are allowed instead of blocked.
 - **Notifications decoupled from requests.** E-mails are sent by a Kafka consumer, so a slow or unavailable mail server never slows down or breaks an offer request.
 - **Tests against real infrastructure.** Integration tests use real PostgreSQL, Redis and Kafka containers instead of mocks or in-memory substitutes, so the SQL, cache serialization and Kafka flows are tested the way they run in production.
@@ -668,6 +687,7 @@ intelliCar
 
 The platform is functionally complete for its core scenarios. Natural next steps are:
 
+- **Object storage.** Uploaded images are stored on a local volume. For several servers, replace `ImageStorage` with S3 or a similar service.
 - **Admin moderation.** The `PENDING_REVIEW` listing status and the `ADMIN` role already exist in the domain model. A review flow where administrators approve or reject new listings would complete them.
 - **Push notifications.** Offer notifications are currently delivered by e-mail. Push delivery needs a client application and device tokens, and would plug into the same Kafka consumer.
 

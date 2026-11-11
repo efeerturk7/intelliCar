@@ -39,11 +39,12 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private Instant updatedAt;
     @Enumerated(EnumType.STRING)
-    private UserRole role;
+    // Kayıt olan herkes USER olur. Rol istemciden alınmaz (kendini ADMIN yapamaz).
+    private UserRole role = UserRole.USER;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + this.role.name()));
+        return List.of(new SimpleGrantedAuthority("ROLE_" + (this.role == null ? UserRole.USER : this.role).name()));
     }
 
     // DÜZELTME: eskiden "" dönüyordu; JWT doğrulama ve login her zaman başarısız olurdu.

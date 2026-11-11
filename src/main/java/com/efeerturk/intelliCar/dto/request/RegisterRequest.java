@@ -1,9 +1,7 @@
 package com.efeerturk.intelliCar.dto.request;
 
-import com.efeerturk.intelliCar.enums.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 public record RegisterRequest(
@@ -19,9 +17,6 @@ public record RegisterRequest(
         @NotBlank
         String lastName,
         @NotBlank
-        String phone,
-        // DÜZELTME: @NotBlank enum'da çalışmaz, @NotNull kullanılmalı.
-        @NotNull
-        UserRole role
+        String phone
 ) {
 }

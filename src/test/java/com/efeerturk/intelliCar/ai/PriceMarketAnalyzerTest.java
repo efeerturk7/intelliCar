@@ -124,7 +124,8 @@ class PriceMarketAnalyzerTest {
         PriceMarketAnalyzer.Market market = PriceMarketAnalyzer.analyze(target(150_000), pool);
 
         assertThat(market.method()).isEqualTo(PriceMethod.MILEAGE_BASED);
-        assertThat(market.baselinePrice()).isEqualTo(3_000_000L);
+        // Araç iki ilandan da daha çok kilometreli: ucuz olan ilanın fiyatını (2.900.000) aşamaz
+        assertThat(market.baselinePrice()).isEqualTo(2_900_000L);
     }
 
     // ---------- Hangi ilanlar "aynı" sayılır ----------
@@ -140,7 +141,8 @@ class PriceMarketAnalyzerTest {
 
         assertThat(market.exactCount()).isEqualTo(1);
         assertThat(market.method()).isEqualTo(PriceMethod.SINGLE_COMPARABLE);
-        assertThat(market.baselinePrice()).isEqualTo(3_000_000L);
+        // 134.000 km, ilandan (100.000 km) 34.000 km fazla: fiyat kilometre farkına göre biraz düşer
+        assertThat(market.baselinePrice()).isEqualTo(2_898_000L);
         // Model yine de diğer ilanları görür (karşılaştırma bağlamı için)
         assertThat(market.comparables()).hasSize(3);
     }
@@ -182,7 +184,12 @@ class PriceMarketAnalyzerTest {
 
         assertThat(market.method()).isEqualTo(PriceMethod.SIMILAR_LISTINGS);
         assertThat(market.exactCount()).isEqualTo(0);
-        assertThat(market.baselinePrice()).isEqualTo(2_800_000L); // medyan
+        // Yıl ve kilometre farkına göre düzeltilmiş ilan fiyatlarının medyanı (2019/110.000 km ilanı ortada)
+        assertThat(market.baselinePrice()).isGreaterThan(2_800_000L);
+        assertThat(market.baselinePrice()).isLessThan(3_000_000L);
+        // 2021 / 40.000 km ilan hem daha yeni hem daha az kilometreli: araç ondan pahalı olamaz
+        assertThat(market.ceilingPrice()).isEqualTo(3_500_000L);
+        assertThat(market.floorPrice() == null).isTrue();
     }
 
     @Test
@@ -315,6 +322,103 @@ class PriceMarketAnalyzerTest {
         assertThat(PriceMarketAnalyzer.decide(market, 4_000_000L, 5_000_000L, 5_500_000L, ConditionImpact.UNKNOWN).aiUsed()).isFalse();
         // En ucuzun çok altı
         assertThat(PriceMarketAnalyzer.decide(market, 1_000_000L, 1_500_000L, 1_800_000L, ConditionImpact.UNKNOWN).aiUsed()).isFalse();
+    }
+
+    // ---------- Yönlü kural: yıl ve kilometre (Audi A4 örneği) ----------
+
+    private static CarCandidate audi(int year, int mileage, long price) {
+        return new CarCandidate(UUID.randomUUID(), "Audi", "A4", year, mileage,
+                BigDecimal.valueOf(price), FuelType.GASOLINE, Transmission.AUTOMATIC, "Konya", "açıklama", null);
+    }
+
+    private static PriceMarketAnalyzer.Target audiTarget(int year, int mileage) {
+        return new PriceMarketAnalyzer.Target("A4", year, mileage, FuelType.GASOLINE, Transmission.AUTOMATIC, "Istanbul");
+    }
+
+    @Test
+    void newerAndLowerMileageCarIsPricedAboveTheListing() {
+        // İlan: A4 2020, 119.500 km, 1.760.000 TL. Araç: A4 2021, 0 km.
+        List<CarCandidate> pool = List.of(audi(2020, 119_500, 1_760_000));
+
+        PriceMarketAnalyzer.Market market = PriceMarketAnalyzer.analyze(audiTarget(2021, 0), pool);
+
+        assertThat(market.method()).isEqualTo(PriceMethod.SIMILAR_LISTINGS);
+        assertThat(market.baselinePrice()).isGreaterThan(1_760_000L);
+        assertThat(market.floorPrice()).isEqualTo(1_760_000L);
+        // Aralık makul genişlikte olmalı (eskiden 1.078.000 - 2.889.000 çıkıyordu)
+        assertThat(market.baselineHigh()).isLessThan(market.baselinePrice() * 3 / 2);
+        assertThat(market.baselineLow()).isGreaterThan(market.baselinePrice() / 2);
+    }
+
+    @Test
+    void aSuggestionBelowTheListingIsRejectedForTheNewerCar() {
+        PriceMarketAnalyzer.Market market = PriceMarketAnalyzer.analyze(audiTarget(2021, 0),
+                List.of(audi(2020, 119_500, 1_760_000)));
+
+        // Önceki hatalı sonuç: 1.625.000 TL (aralık 1.078.000 - 2.889.000)
+        assertThat(PriceMarketAnalyzer.decide(market, 1_078_000L, 1_625_000L, 2_889_000L, ConditionImpact.UNKNOWN).aiUsed()).isFalse();
+        // Daha yeni ve 0 km olan araç için 1.600.000 TL de kabul edilmez
+        assertThat(PriceMarketAnalyzer.decide(market, 1_500_000L, 1_600_000L, 1_700_000L, ConditionImpact.NEUTRAL).aiUsed()).isFalse();
+    }
+
+    @Test
+    void fourQuadrantsFollowTheExpectedOrder() {
+        // Referans ilan: A4 2020, 100.000 km, 2.000.000 TL
+        List<CarCandidate> pool = List.of(audi(2020, 100_000, 2_000_000));
+
+        long newLowKm = PriceMarketAnalyzer.analyze(audiTarget(2021, 20_000), pool).baselinePrice();
+        long newHighKm = PriceMarketAnalyzer.analyze(audiTarget(2021, 180_000), pool).baselinePrice();
+        long oldLowKm = PriceMarketAnalyzer.analyze(audiTarget(2019, 20_000), pool).baselinePrice();
+        long oldHighKm = PriceMarketAnalyzer.analyze(audiTarget(2019, 180_000), pool).baselinePrice();
+
+        assertThat(newLowKm).isGreaterThan(newHighKm);
+        assertThat(newLowKm).isGreaterThan(oldLowKm);
+        assertThat(newHighKm).isGreaterThan(oldHighKm);
+        assertThat(oldLowKm).isGreaterThan(oldHighKm);
+        // Hem eski hem çok kilometreli: ilandan ucuz. Hem yeni hem az kilometreli: ilandan pahalı.
+        assertThat(oldHighKm).isLessThan(2_000_000L);
+        assertThat(newLowKm).isGreaterThan(2_000_000L);
+    }
+
+    @Test
+    void olderAndHigherMileageCarIsPricedBelowTheListing() {
+        PriceMarketAnalyzer.Market market = PriceMarketAnalyzer.analyze(audiTarget(2019, 180_000),
+                List.of(audi(2020, 100_000, 2_000_000)));
+
+        assertThat(market.ceilingPrice()).isEqualTo(2_000_000L);
+        assertThat(market.baselinePrice()).isLessThan(2_000_000L);
+    }
+
+    @Test
+    void dominanceBoundsIgnoreListingsThatAreMixed() {
+        // Daha yeni ama daha çok kilometreli ilan, ne alt ne üst sınır koyar
+        PriceMarketAnalyzer.Bounds bounds = PriceMarketAnalyzer.dominanceBounds(audiTarget(2020, 50_000),
+                List.of(audi(2021, 90_000, 2_400_000), audi(2019, 20_000, 1_900_000)));
+
+        assertThat(bounds.floor() == null).isTrue();
+        assertThat(bounds.ceiling() == null).isTrue();
+    }
+
+    @Test
+    void applyBoundsKeepsThePriceWhenBoundsContradict() {
+        assertThat(PriceMarketAnalyzer.applyBounds(2_000_000L, new PriceMarketAnalyzer.Bounds(2_500_000L, 1_800_000L)))
+                .isEqualTo(2_000_000L);
+        assertThat(PriceMarketAnalyzer.applyBounds(1_000_000L, new PriceMarketAnalyzer.Bounds(1_500_000L, null)))
+                .isEqualTo(1_500_000L);
+        assertThat(PriceMarketAnalyzer.applyBounds(3_000_000L, new PriceMarketAnalyzer.Bounds(null, 2_500_000L)))
+                .isEqualTo(2_500_000L);
+    }
+
+    @Test
+    void singleListingWithSameYearIsAdjustedByMileage() {
+        PriceMarketAnalyzer.Market lowKm = PriceMarketAnalyzer.analyze(audiTarget(2020, 50_000),
+                List.of(audi(2020, 100_000, 2_000_000)));
+        PriceMarketAnalyzer.Market highKm = PriceMarketAnalyzer.analyze(audiTarget(2020, 150_000),
+                List.of(audi(2020, 100_000, 2_000_000)));
+
+        assertThat(lowKm.method()).isEqualTo(PriceMethod.SINGLE_COMPARABLE);
+        assertThat(lowKm.baselinePrice()).isGreaterThan(2_000_000L);
+        assertThat(highKm.baselinePrice()).isLessThan(2_000_000L);
     }
 
     // ---------- ConditionImpact ----------

@@ -63,9 +63,9 @@ public class PriceEstimationServiceImpl implements PriceEstimationService {
     private static final String FALLBACK_MILEAGE_EXPLANATION =
             "Fiyat, aynı model ve yıldaki ilanların kilometreye göre karşılaştırılmasıyla hesaplandı.";
     private static final String FALLBACK_SINGLE_EXPLANATION =
-            "Fiyat, platformdaki aynı model ve yıla ait tek ilanın fiyatına göre hesaplandı.";
+            "Fiyat, aynı model ve yıldaki tek ilanın fiyatının kilometre farkına göre düzeltilmesiyle hesaplandı.";
     private static final String FALLBACK_SIMILAR_EXPLANATION =
-            "Fiyat aralığı platformdaki benzer ilanların fiyat dağılımından hesaplandı.";
+            "Fiyat, benzer ilanların fiyatlarının model yılı ve kilometre farkına göre düzeltilmesiyle hesaplandı.";
     private static final String FALLBACK_CONDITION_NOTE =
             " Yapay zeka analizi kullanılamadığı veya tutarlı bir sonuç vermediği için hasar kaydı, değişen ve boya bilgisi fiyata yansıtılmadı.";
     private static final String FALLBACK_CONDITION_SUMMARY =
@@ -89,7 +89,7 @@ public class PriceEstimationServiceImpl implements PriceEstimationService {
               NEUTRAL: durum benzer ilanlarla aynı.
               UNKNOWN: satılacak aracın açıklamasında durumla ilgili bilgi yok.
             - suggestedPrice, conditionImpact ile tutarlı olsun: NEGATIVE ise baz fiyatın altında, POSITIVE ise üstünde, NEUTRAL ve UNKNOWN ise baz fiyata çok yakın olsun.
-            - Ayarlama makul olsun: durum nedeniyle fiyatı en fazla yaklaşık yüzde 30 düşür veya yüzde 10 artır. Ağır hasar, tramer kaydı ya da çok sayıda değişen ve boyalı parça fiyatı belirgin biçimde düşürür. Hasarsız, boyasız ve değişensiz araç fiyatı hafif artırır.
+            - Ayarlama makul olsun: durum nedeniyle fiyatı en fazla yaklaşık yüzde 30 düşür veya yüzde 10 artır (aralığın üst sınırı alt sınırın en fazla 1,4 katı olsun). Ağır hasar, tramer kaydı ya da çok sayıda değişen ve boyalı parça fiyatı belirgin biçimde düşürür. Hasarsız, boyasız ve değişensiz araç fiyatı hafif artırır.
             - Açıklamada olmayan bir durumu uydurma. Bilgi yoksa UNKNOWN yaz ve fiyatı baz fiyata yakın tut.
             - Benzer ilanlar satıcıların İSTEDİĞİ fiyatlardır, gerçek satış fiyatı biraz daha düşük olabilir.
             - conditionSummary: satılacak aracın durumunu açıklamasına göre tek cümleyle yaz (hasar kaydı, değişen, boya). Bilgi yoksa bunu belirt.
@@ -260,22 +260,32 @@ public class PriceEstimationServiceImpl implements PriceEstimationService {
 
     /** Baz fiyatın nasıl hesaplandığını ve modelin neleri tekrar yansıtmaması gerektiğini söyler. */
     private String methodNote(PriceMarketAnalyzer.Market market, PriceEstimateRequest request) {
+        String how;
         if (market.method() == PriceMethod.MILEAGE_BASED) {
-            String note = ("Bu fiyat, aynı model ve model yılındaki %d ilanın kilometreye göre karşılaştırılmasıyla hesaplandı. "
-                    + "Kilometre ve model yılı farkı baz fiyatta ZATEN var, onları fiyata tekrar yansıtma. "
-                    + "Fiyatı yalnızca araç durumuna (hasar kaydı, değişen, boya, bakım) göre ayarla.")
+            how = "Bu fiyat, aynı model ve model yılındaki %d ilanın kilometreye göre karşılaştırılmasıyla hesaplandı."
                     .formatted(market.exactCount());
             if (market.extrapolated()) {
-                note += " Satılacak aracın kilometresi ilanların kilometre aralığının dışında, bu yüzden baz fiyat daha belirsiz.";
+                how += " Satılacak aracın kilometresi ilanların kilometre aralığının dışında, bu yüzden baz fiyat daha belirsiz.";
             }
-            return note;
+        } else if (market.method() == PriceMethod.SINGLE_COMPARABLE) {
+            how = "Aynı model ve model yılından platformda yalnızca 1 ilan var, baz fiyat onun fiyatının kilometre farkına (satılacak araç %d km) göre düzeltilmiş halidir."
+                    .formatted(request.mileage());
+        } else {
+            how = "Aynı model ve model yılından ilan yok, baz fiyat benzer ilanların fiyatlarının model yılı ve kilometre (satılacak araç %d km) farkına göre düzeltilmiş medyanıdır."
+                    .formatted(request.mileage());
         }
-        if (market.method() == PriceMethod.SINGLE_COMPARABLE) {
-            return "Aynı model ve model yılından platformda yalnızca 1 ilan var, baz fiyat onun fiyatıdır. "
-                    + "Kilometre farkını (satılacak araç %d km) ve aracın durumunu fiyata yansıt.".formatted(request.mileage());
+        StringBuilder note = new StringBuilder(how)
+                .append(" Kilometre ve model yılı farkı baz fiyatta ZATEN var, onları fiyata tekrar yansıtma. ")
+                .append("Fiyatı yalnızca araç durumuna (hasar kaydı, değişen, boya, bakım) göre ayarla.");
+        if (market.floorPrice() != null) {
+            note.append(" Satılacak araç, %s TL'lik bir ilandan hem daha yeni (veya aynı yıl) hem daha az kilometreli, bu yüzden fiyatı bunun altına düşürme (hasar kaydı yoksa)."
+                    .formatted(market.floorPrice()));
         }
-        return "Aynı model ve model yılından ilan yok, baz fiyat benzer ilanların medyan fiyatıdır. "
-                + "Model yılı, kilometre (satılacak araç %d km) ve araç durumu farklarını fiyata yansıt.".formatted(request.mileage());
+        if (market.ceilingPrice() != null) {
+            note.append(" %s TL'lik bir ilan satılacak araçtan hem daha yeni (veya aynı yıl) hem daha az kilometreli, bu yüzden fiyatı bunun üstüne çıkarma."
+                    .formatted(market.ceilingPrice()));
+        }
+        return note.toString();
     }
 
     private String toLine(int index, CarCandidate c, boolean exactMatch) {

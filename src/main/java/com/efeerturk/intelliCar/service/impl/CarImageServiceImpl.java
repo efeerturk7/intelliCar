@@ -13,7 +13,10 @@ import com.efeerturk.intelliCar.repository.CarRepository;
 import com.efeerturk.intelliCar.service.CarImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.efeerturk.intelliCar.storage.ImageStorage;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -26,7 +29,50 @@ import java.util.UUID;
 public class CarImageServiceImpl implements CarImageService {
     private final CarImageRepository carImageRepository;
     private final CarRepository carRepository;
+    // DÜZELTME: final yapıldı. Önceden final olmadığı için @RequiredArgsConstructor enjekte etmiyor, NPE oluyordu.
     private final CarImageMapper carImageMapper;
+    private final ImageStorage imageStorage;
+
+    @Value("${intellicar.upload.max-images-per-car:15}")
+    private int maxImagesPerCar;
+
+    @Override
+    @Transactional
+    public List<CarImageResponse> uploadImages(UUID carId, List<MultipartFile> files, boolean firstPrimary,
+                                               UUID sellerId, String baseUrl) {
+        if (files == null || files.isEmpty()) {
+            throw new BaseException(new ErrorMessage(MessageType.INVALID_IMAGE_FILE, "Dosya seçilmedi"));
+        }
+        // Dosyaları diske yazmadan önce yetki ve limit kontrolü yapılır
+        Car car = carRepository.findById(carId)
+                .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.CAR_NOT_FOUND, carId.toString())));
+        if (!car.getSeller().getId().equals(sellerId)) {
+            throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
+        }
+        List<CarImage> existing = carImageRepository.findByCarId(carId);
+        if (existing.size() + files.size() > maxImagesPerCar) {
+            throw new BaseException(new ErrorMessage(MessageType.IMAGE_LIMIT_EXCEEDED,
+                    "En fazla " + maxImagesPerCar + " görsel eklenebilir"));
+        }
+
+        List<String> storedPaths = new ArrayList<>();
+        try {
+            for (MultipartFile file : files) {
+                storedPaths.add(imageStorage.store(file));
+            }
+            boolean hasPrimary = existing.stream().anyMatch(CarImage::isPrimary);
+            List<CarImageRequest> requests = new ArrayList<>();
+            for (int i = 0; i < storedPaths.size(); i++) {
+                boolean primary = i == 0 && (firstPrimary || !hasPrimary);
+                requests.add(new CarImageRequest(baseUrl + storedPaths.get(i), primary));
+            }
+            return addImagesToCar(carId, requests, sellerId);
+        } catch (RuntimeException ex) {
+            // Veritabanına yazılamadıysa diskte yetim dosya kalmasın
+            storedPaths.forEach(imageStorage::deleteQuietly);
+            throw ex;
+        }
+    }
 
     @Override
     @Transactional
@@ -38,7 +84,7 @@ public class CarImageServiceImpl implements CarImageService {
             throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
         }
 
-
+        // Aynı araçta birden fazla primary olursa findByCarIdAndIsPrimaryTrue patlar; tek primary garantisi.
         boolean newPrimaryRequested = requestList.stream().anyMatch(CarImageRequest::isPrimary);
         if (newPrimaryRequested) {
             carImageRepository.findByCarId(carId).forEach(old -> old.setPrimary(false));
@@ -65,7 +111,7 @@ public class CarImageServiceImpl implements CarImageService {
     @Override
     @Transactional
     public void setPrimaryImage(UUID carId, UUID imageId, UUID sellerId) {
-
+        // DÜZELTME: hata tipi IMAGE_NOT_FOUND olmalı (eskiden CAR_NOT_FOUND idi).
         CarImage dbCarImage = carImageRepository.findById(imageId)
                 .orElseThrow(() -> new BaseException(new ErrorMessage(MessageType.IMAGE_NOT_FOUND, imageId.toString())));
         if (!dbCarImage.getCar().getId().equals(carId)) {
@@ -93,7 +139,9 @@ public class CarImageServiceImpl implements CarImageService {
         if (!dbCarImage.getCar().getSeller().getId().equals(sellerId)) {
             throw new BaseException(new ErrorMessage(MessageType.UNAUTHORIZED_IMAGE_OPERATION, sellerId.toString()));
         }
+        String url = dbCarImage.getImageUrl();
         carImageRepository.delete(dbCarImage);
+        imageStorage.deleteQuietly(url);
         log.info("Image {} deleted", imageId);
     }
 }

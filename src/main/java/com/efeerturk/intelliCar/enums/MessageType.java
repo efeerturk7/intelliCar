@@ -20,6 +20,10 @@ public enum MessageType {
     UNAUTHORIZED_IMAGE_OPERATION("a1021", "You are not authorized to modify images for this car"),
     IMAGE_DOES_NOT_BELONG_TO_CAR("a1022", "The specified image does not belong to this car"),
 
+    INVALID_IMAGE_FILE("a1024", "Invalid image file"),
+    IMAGE_LIMIT_EXCEEDED("a1025", "Too many images for this car"),
+    IMAGE_STORAGE_FAILED("a1026", "The image could not be saved, please try again"),
+
     // --- OFFER (1030 - 1039) ---
     OFFER_NOT_FOUND("a1030", "Offer not found"),
     CANNOT_OFFER_ON_OWN_CAR("a1031", "You cannot make an offer on your own vehicle"),

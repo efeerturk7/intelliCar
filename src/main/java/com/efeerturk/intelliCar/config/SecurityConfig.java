@@ -47,13 +47,16 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
 
-
+                        // DÜZELTME: "/my-cars" giriş gerektirir (sıra önemli, genel kuraldan ÖNCE gelmeli).
                         .requestMatchers(HttpMethod.GET, "/intelliCar/api/v1/car/my-cars").authenticated()
 
-
+                        // DÜZELTME: controller yolu "/car" (eskiden "/cars/**" idi, hiç eşleşmiyordu).
                         .requestMatchers(HttpMethod.GET,
                                 "/intelliCar/api/v1/car",
                                 "/intelliCar/api/v1/car/**").permitAll()
+
+                        // Yüklenen ilan görselleri herkese açık (resim etiketi token gönderemez).
+                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
                         .anyRequest().authenticated()
                 )

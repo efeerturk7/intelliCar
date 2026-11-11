@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
@@ -36,6 +37,14 @@ public class GlobalExceptionHandler {
         ApiError<String> apiError = createApiError(ex.getMessage(), request);
         apiError.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(apiError);
+    }
+
+    // Dosya, spring.servlet.multipart sınırından büyükse (varsayılan 5 MB dosya, 25 MB istek)
+    @ExceptionHandler(value = { MaxUploadSizeExceededException.class })
+    public ResponseEntity<ApiError<String>> handleUploadTooLarge(MaxUploadSizeExceededException ex, WebRequest request) {
+        ApiError<String> apiError = createApiError("Dosya çok büyük: her görsel en fazla 5 MB olabilir", request);
+        apiError.setStatus(HttpStatus.PAYLOAD_TOO_LARGE.value());
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(apiError);
     }
 
     @ExceptionHandler(value = { RateLimitExceededException.class })

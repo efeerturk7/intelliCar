@@ -12,13 +12,24 @@ import java.util.Locale;
 /**
  * Fiyat tahmininin SAYISAL kısmı. Spring'e bağımlı değildir, yapay zeka kullanmaz.
  *
+ * Temel kural (yönlü fiyat mantığı): bir araç, başka bir ilandan hem daha yeni (veya aynı yıl) hem de daha az kilometreliyse
+ * o ilandan PAHALI olmalı; hem daha eski hem daha çok kilometreliyse UCUZ olmalı. Karışık durumlarda (daha yeni ama daha çok
+ * kilometreli gibi) fiyat ikisinin arasında kalır.
+ *
  * Baz fiyat üç yoldan biriyle hesaplanır (PriceMethod):
  *  1) MILEAGE_BASED: aynı marka, model VE yıldan en az 2 ilan varsa, fiyat bu ilanların kilometreye göre
  *     karşılaştırılmasıyla bulunur. Örnek: 100.000 km'lik ilan 3.000.000 TL, 150.000 km'lik ilan 2.700.000 TL ise
  *     134.000 km'lik araç için fiyat bu ikisinin arasında, kilometreyle orantılı olarak hesaplanır.
  *     Yalnızca kilometre bakımından en yakın iki ilan kullanılır, uçtaki (örn. 300.000 km) ilanlar sonucu bozmaz.
- *  2) SINGLE_COMPARABLE: aynı model ve yıldan tek ilan varsa onun fiyatı baz alınır.
- *  3) SIMILAR_LISTINGS: aynı model ve yıldan ilan yoksa aynı markanın en benzer ilanlarının fiyat dağılımı kullanılır.
+ *  2) SINGLE_COMPARABLE: aynı model ve yıldan tek ilan varsa onun fiyatı, kilometre farkına göre düzeltilerek kullanılır.
+ *  3) SIMILAR_LISTINGS: aynı model ve yıldan ilan yoksa, aynı modelin (yoksa aynı markanın) en benzer ilanlarının fiyatları
+ *     yıl ve kilometre farkına göre düzeltilir ve medyanı alınır.
+ *
+ * Üç yolda da sonuç, yönlü kuralla sınırlanır (floor / ceiling): araç bir ilandan açıkça daha iyiyse onun fiyatının altına,
+ * açıkça daha kötüyse üstüne çıkamaz.
+ *
+ * Düzeltme oranları (YEAR_RATE, KM_RATE_PER_10K) piyasa verisinden öğrenilmiş değil, varsayımdır. Yalnızca yönü ve kabaca
+ * büyüklüğü verir; ilan sayısı arttıkça yerini veriden öğrenilen oranlara bırakabilir.
  *
  * Gemini bu baz fiyatı yalnızca aracın durumuna (hasar kaydı, değişen, boya) göre ayarlar. Önerisi decide() ile denetlenir;
  * tutarsızsa baz fiyat kullanılır.
@@ -27,14 +38,10 @@ public final class PriceMarketAnalyzer {
 
     public static final int MAX_COMPARABLES = 15;
 
-    private static final int MIN_SAME_MODEL_FOR_BASELINE = 3;
-    private static final int MIN_FOR_QUARTILES = 4;
-
-    // Tek ilan veya benzer ilanlar yöntemi: model fiyatı, ilanların fiyat sınırlarının bu kadar dışına çıkamaz.
-    private static final double LOWER_BOUND_FACTOR = 0.6;
-    private static final double UPPER_BOUND_FACTOR = 1.4;
-    // En yüksek fiyat, en düşük fiyatın en fazla 2 katı olabilir (çok geniş aralık işe yaramaz).
-    private static final double MAX_RANGE_RATIO = 2.0;
+    // Düzeltme varsayımları: model yılı başına ve 10.000 km başına fiyat değişimi, her biri en fazla +-%30 etki eder.
+    static final double YEAR_RATE = 0.05;
+    static final double KM_RATE_PER_10K = 0.01;
+    static final double ADJUSTMENT_CAP = 0.30;
 
     // Kilometre aralığının dışındaki araçlar için: baz fiyat, uçtaki ilanın fiyatından en fazla bu kadar sapabilir.
     private static final double EXTRAPOLATE_MAX_GAIN = 1.15;
@@ -44,17 +51,20 @@ public final class PriceMarketAnalyzer {
     private static final double BAND_INTERPOLATED = 0.05;
     private static final double BAND_EXTRAPOLATED = 0.08;
     private static final double BAND_SINGLE = 0.10;
+    private static final double BAND_SIMILAR = 0.12;
+    private static final double BAND_CROSS_MODEL = 0.20;
 
-    // MILEAGE_BASED: Gemini'nin baz fiyattan ne kadar uzaklaşabileceği (kilometre ve yıl zaten baz fiyatta var)
-    private static final double ANCHORED_SUGGESTED_MIN = 0.65;
-    private static final double ANCHORED_SUGGESTED_MAX = 1.10;
-    private static final double ANCHORED_RANGE_MIN = 0.55;
-    private static final double ANCHORED_RANGE_MAX = 1.20;
-    private static final double ANCHORED_MAX_RANGE_RATIO = 1.6;
+    // Gemini'nin baz fiyattan ne kadar uzaklaşabileceği (kilometre ve yıl zaten baz fiyatta var)
+    private static final double SUGGESTED_MIN = 0.65;
+    private static final double SUGGESTED_MAX = 1.10;
+    private static final double RANGE_MIN = 0.55;
+    private static final double RANGE_MAX = 1.20;
+    private static final double MAX_RANGE_RATIO = 1.4;
     // Durum bilgisi yoksa veya benzerleriyle aynıysa fiyat baz fiyata yakın kalmalı
-    private static final double NEUTRAL_TOLERANCE = 0.10;
+    private static final double NEUTRAL_TOLERANCE = 0.05;
     // Yön kontrolünde küçük bir pay (yuvarlama) tanınır
     private static final double DIRECTION_TOLERANCE = 0.02;
+    private static final double DOMINANCE_TOLERANCE = 0.01;
 
     private PriceMarketAnalyzer() {
     }
@@ -72,18 +82,18 @@ public final class PriceMarketAnalyzer {
     /**
      * @param comparables    modele gösterilecek ilanlar: önce aynı model ve yıldakiler, sonra en benzer diğerleri
      * @param sameModelCount comparables içinde aynı (benzer yazımlı) modelden olanların sayısı
-     * @param baselineCount  istatistiğin hesaplandığı ilan sayısı
+     * @param baselineCount  baz fiyatın dayandığı ilan sayısı
      * @param marketMin      baz fiyatın dayandığı ilanların en düşük fiyatı
      * @param marketMedian   baz fiyatın dayandığı ilanların medyan fiyatı
      * @param marketMax      baz fiyatın dayandığı ilanların en yüksek fiyatı
      * @param baselineLow    baz fiyatın etrafındaki istatistiksel aralığın alt sınırı
      * @param baselineHigh   baz fiyatın etrafındaki istatistiksel aralığın üst sınırı
-     * @param boundsMin      comparables içindeki en düşük fiyat (SINGLE ve SIMILAR yöntemlerinde modeli denetlemek için)
-     * @param boundsMax      comparables içindeki en yüksek fiyat
      * @param method         baz fiyatın hesaplanma yöntemi
-     * @param baselinePrice  baz fiyat (yalnızca ilanlara ve kilometreye dayanır)
+     * @param baselinePrice  baz fiyat (yalnızca ilanlara, yıla ve kilometreye dayanır; araç durumu hariç)
      * @param exactCount     aynı marka, model ve yıldaki ilan sayısı (tüm havuzda)
      * @param extrapolated   araç, aynı model ve yıldaki ilanların kilometre aralığının dışında mı (değer daha belirsiz)
+     * @param floorPrice     araç, bu fiyattaki ilandan daha yeni ve daha az kilometreli: fiyat bunun altına inmemeli (yoksa null)
+     * @param ceilingPrice   bu fiyattaki ilan araçtan daha yeni ve daha az kilometreli: fiyat bunun üstüne çıkmamalı (yoksa null)
      */
     public record Market(
             List<CarCandidate> comparables,
@@ -94,12 +104,12 @@ public final class PriceMarketAnalyzer {
             long marketMax,
             long baselineLow,
             long baselineHigh,
-            long boundsMin,
-            long boundsMax,
             PriceMethod method,
             long baselinePrice,
             int exactCount,
-            boolean extrapolated
+            boolean extrapolated,
+            Long floorPrice,
+            Long ceilingPrice
     ) {
     }
 
@@ -125,6 +135,12 @@ public final class PriceMarketAnalyzer {
                         .thenComparing(CarCandidate::price))
                 .toList();
 
+        // Aynı model, herhangi bir yıl: yönlü kural (floor / ceiling) bu ilanlara bakar.
+        List<CarCandidate> identicalModel = pool.stream()
+                .filter(c -> isIdenticalModel(target.model(), c.model()))
+                .toList();
+        Bounds bounds = dominanceBounds(target, identicalModel);
+
         List<CarCandidate> comparables = new ArrayList<>(exact.stream().limit(MAX_COMPARABLES).toList());
         for (CarCandidate c : ranked) {
             if (comparables.size() >= MAX_COMPARABLES) {
@@ -137,69 +153,107 @@ public final class PriceMarketAnalyzer {
 
         int sameModelCount = (int) comparables.stream().filter(c -> isSameModel(target.model(), c.model())).count();
 
-        long[] allPrices = comparables.stream().mapToLong(PriceMarketAnalyzer::toLong).sorted().toArray();
-        long boundsMin = allPrices[0];
-        long boundsMax = allPrices[allPrices.length - 1];
-
         if (exact.size() >= 2) {
             Baseline baseline = mileageBaseline(exact, target.mileage());
+            long price = applyBounds(baseline.price(), bounds);
             long[] prices = exact.stream().mapToLong(PriceMarketAnalyzer::toLong).sorted().toArray();
             double band = baseline.extrapolated() ? BAND_EXTRAPOLATED : BAND_INTERPOLATED;
-            return new Market(
-                    comparables, sameModelCount, exact.size(),
-                    prices[0], Math.round(percentile(prices, 0.5)), prices[prices.length - 1],
-                    Math.round(baseline.price() * (1 - band)), Math.round(baseline.price() * (1 + band)),
-                    boundsMin, boundsMax,
-                    PriceMethod.MILEAGE_BASED, baseline.price(), exact.size(), baseline.extrapolated());
+            return market(comparables, sameModelCount, exact.size(), prices, price, band,
+                    PriceMethod.MILEAGE_BASED, exact.size(), baseline.extrapolated(), bounds);
         }
 
         if (exact.size() == 1) {
-            long price = toLong(exact.get(0));
-            return new Market(
-                    comparables, sameModelCount, 1,
-                    price, price, price,
-                    Math.round(price * (1 - BAND_SINGLE)), Math.round(price * (1 + BAND_SINGLE)),
-                    boundsMin, boundsMax,
-                    PriceMethod.SINGLE_COMPARABLE, price, 1, false);
+            // Aynı model ve yıl: sadece kilometre farkı fiyata yansıtılır
+            CarCandidate only = exact.get(0);
+            long price = applyBounds(Math.round(toLong(only) * adjustmentFactor(target, only)), bounds);
+            long[] prices = {toLong(only)};
+            return market(comparables, sameModelCount, 1, prices, price, BAND_SINGLE,
+                    PriceMethod.SINGLE_COMPARABLE, 1, false, bounds);
         }
 
-        return similarListingsMarket(target, ranked, comparables, sameModelCount, boundsMin, boundsMax);
+        // Aynı model ve yıl yok: aynı modelin (yoksa markanın) en benzer ilanları, yıl ve kilometre farkına göre düzeltilir.
+        List<CarCandidate> basis = identicalModel.isEmpty()
+                ? ranked
+                : identicalModel.stream()
+                        .sorted(Comparator.comparingDouble((CarCandidate c) -> distance(target, c)))
+                        .limit(MAX_COMPARABLES)
+                        .toList();
+        long[] rawPrices = basis.stream().mapToLong(PriceMarketAnalyzer::toLong).sorted().toArray();
+        long[] adjusted = basis.stream()
+                .mapToLong(c -> Math.round(toLong(c) * adjustmentFactor(target, c)))
+                .sorted()
+                .toArray();
+        long price = applyBounds(Math.round(percentile(adjusted, 0.5)), bounds);
+        double band = identicalModel.isEmpty() ? BAND_CROSS_MODEL : BAND_SIMILAR;
+        return market(comparables, sameModelCount, basis.size(), rawPrices, price, band,
+                PriceMethod.SIMILAR_LISTINGS, 0, false, bounds);
     }
 
-    /** Aynı model ve yıldan ilan yok: aynı markanın en benzer ilanlarının fiyat dağılımı. */
-    private static Market similarListingsMarket(Target target, List<CarCandidate> ranked, List<CarCandidate> comparables,
-                                                int sameModelCount, long boundsMin, long boundsMax) {
-        List<CarCandidate> sameModel = ranked.stream()
-                .filter(c -> isSameModel(target.model(), c.model()))
-                .toList();
-
-        // Yeterli sayıda aynı model varsa istatistik sadece onlardan çıkar, yoksa tüm benzer ilanlardan.
-        List<CarCandidate> baseline = sameModel.size() >= MIN_SAME_MODEL_FOR_BASELINE ? sameModel : ranked;
-
-        long[] prices = baseline.stream().mapToLong(PriceMarketAnalyzer::toLong).sorted().toArray();
-
-        long median = Math.round(percentile(prices, 0.5));
-        long low;
-        long high;
-        if (prices.length >= MIN_FOR_QUARTILES) {
-            low = Math.round(percentile(prices, 0.25));
-            high = Math.round(percentile(prices, 0.75));
-        } else {
-            low = prices[0];
-            high = prices[prices.length - 1];
-        }
-        // Tek ilan (veya hepsi aynı fiyat) varsa sıfır genişlikli aralık yerine +-%10 kullan.
-        if (low == high) {
-            low = Math.round(median * 0.9);
-            high = Math.round(median * 1.1);
-        }
-
+    private static Market market(List<CarCandidate> comparables, int sameModelCount, int baselineCount, long[] sortedPrices,
+                                 long price, double band, PriceMethod method, int exactCount, boolean extrapolated,
+                                 Bounds bounds) {
         return new Market(
-                comparables, sameModelCount, baseline.size(),
-                prices[0], median, prices[prices.length - 1],
-                low, high,
-                boundsMin, boundsMax,
-                PriceMethod.SIMILAR_LISTINGS, median, 0, false);
+                comparables, sameModelCount, baselineCount,
+                sortedPrices[0], Math.round(percentile(sortedPrices, 0.5)), sortedPrices[sortedPrices.length - 1],
+                Math.round(price * (1 - band)), Math.round(price * (1 + band)),
+                method, price, exactCount, extrapolated,
+                bounds.floor(), bounds.ceiling());
+    }
+
+    // ---------- Yönlü kural: yıl ve kilometreye göre fiyat sınırları ----------
+
+    record Bounds(Long floor, Long ceiling) {
+    }
+
+    /**
+     * Aynı modeldeki ilanlara göre fiyatın alt ve üst sınırı.
+     * - Araç bir ilandan daha yeni (veya aynı yıl) VE daha az (veya eşit) kilometreliyse o ilandan pahalı olmalı: floor.
+     * - Bir ilan araçtan daha yeni (veya aynı yıl) VE daha az kilometreliyse araç ondan ucuz olmalı: ceiling.
+     * Karışık durumlarda (daha yeni ama daha çok kilometreli gibi) ilan sınır koymaz.
+     */
+    static Bounds dominanceBounds(Target target, List<CarCandidate> sameModel) {
+        Long floor = null;
+        Long ceiling = null;
+        for (CarCandidate c : sameModel) {
+            long price = toLong(c);
+            boolean targetBetter = target.year() >= c.year() && target.mileage() <= c.mileage();
+            boolean listingBetter = c.year() >= target.year() && c.mileage() <= target.mileage();
+            if (targetBetter) {
+                floor = floor == null ? price : Math.max(floor, price);
+            }
+            if (listingBetter) {
+                ceiling = ceiling == null ? price : Math.min(ceiling, price);
+            }
+        }
+        return new Bounds(floor, ceiling);
+    }
+
+    /** Fiyatı sınırların içine alır. Sınırlar birbiriyle çelişiyorsa (tutarsız ilan verisi) fiyata dokunmaz. */
+    static long applyBounds(long price, Bounds bounds) {
+        Long floor = bounds.floor();
+        Long ceiling = bounds.ceiling();
+        if (floor != null && ceiling != null && floor > ceiling) {
+            return price;
+        }
+        long result = price;
+        if (floor != null && result < floor) {
+            result = floor;
+        }
+        if (ceiling != null && result > ceiling) {
+            result = ceiling;
+        }
+        return result;
+    }
+
+    /**
+     * Bir ilanın fiyatını, satılacak aracın yılına ve kilometresine göre düzeltme çarpanı.
+     * Araç daha yeniyse ve daha az kilometreliyse çarpan 1'den büyük, tersiyse küçüktür.
+     */
+    static double adjustmentFactor(Target target, CarCandidate c) {
+        double yearEffect = clamp(YEAR_RATE * (target.year() - c.year()), -ADJUSTMENT_CAP, ADJUSTMENT_CAP);
+        double kmEffect = clamp(KM_RATE_PER_10K * (c.mileage() - target.mileage()) / 10_000.0,
+                -ADJUSTMENT_CAP, ADJUSTMENT_CAP);
+        return (1 + yearEffect) * (1 + kmEffect);
     }
 
     /**
@@ -213,7 +267,7 @@ public final class PriceMarketAnalyzer {
         return new Decision(market.baselineLow(), market.baselinePrice(), market.baselineHigh(), false);
     }
 
-    /** Modelin döndürdüğü fiyat aralığı makul ve aracın durumuyla tutarlı mı? */
+    /** Modelin döndürdüğü fiyat aralığı makul, yönlü kuralla ve aracın durumuyla tutarlı mı? */
     public static boolean isPlausible(Long min, Long suggested, Long max, Market market, ConditionImpact impact) {
         if (min == null || suggested == null || max == null) {
             return false;
@@ -225,40 +279,42 @@ public final class PriceMarketAnalyzer {
             return false;
         }
 
-        if (market.method() != PriceMethod.MILEAGE_BASED) {
-            // Baz fiyat kilometre ve yıl farkını içermiyor, model onları yorumluyor: ilan fiyat sınırlarına bakılır.
-            if (min < market.boundsMin() * LOWER_BOUND_FACTOR) {
-                return false;
-            }
-            if (max > market.boundsMax() * UPPER_BOUND_FACTOR) {
-                return false;
-            }
-            return max <= min * MAX_RANGE_RATIO;
-        }
-
-        // MILEAGE_BASED: kilometre ve yıl baz fiyatta var, model sadece aracın durumuna göre ayarlayabilir.
+        // Kilometre ve yıl farkı baz fiyatta zaten var: model sadece aracın durumuna göre ayarlayabilir.
         double base = market.baselinePrice();
-        if (suggested < base * ANCHORED_SUGGESTED_MIN || suggested > base * ANCHORED_SUGGESTED_MAX) {
+        if (suggested < base * SUGGESTED_MIN || suggested > base * SUGGESTED_MAX) {
             return false;
         }
-        if (min < base * ANCHORED_RANGE_MIN || max > base * ANCHORED_RANGE_MAX) {
+        if (min < base * RANGE_MIN || max > base * RANGE_MAX) {
             return false;
         }
-        if (max > min * ANCHORED_MAX_RANGE_RATIO) {
+        if (max > min * MAX_RANGE_RATIO) {
             return false;
         }
 
         ConditionImpact direction = impact == null ? ConditionImpact.UNKNOWN : impact;
+        Long floor = market.floorPrice();
+        Long ceiling = market.ceilingPrice();
+
         if (direction == ConditionImpact.NEGATIVE) {
-            // Daha kötü durumdaki araç, baz fiyattan pahalı önerilemez.
+            // Daha kötü durumdaki araç, baz fiyattan pahalı önerilemez. Alt sınır (floor) uygulanmaz: hasar fiyatı düşürebilir.
             return suggested <= base * (1 + DIRECTION_TOLERANCE);
         }
         if (direction == ConditionImpact.POSITIVE) {
-            // Daha iyi durumdaki araç, baz fiyattan ucuz önerilemez.
-            return suggested >= base * (1 - DIRECTION_TOLERANCE);
+            // Daha iyi durumdaki araç, baz fiyattan ucuz önerilemez ve daha eski/çok kilometreli ilandan ucuz olamaz.
+            if (suggested < base * (1 - DIRECTION_TOLERANCE)) {
+                return false;
+            }
+            return floor == null || suggested >= floor * (1 - DOMINANCE_TOLERANCE);
         }
-        // NEUTRAL veya UNKNOWN: durum fiyatı değiştirmemeli.
-        return suggested >= base * (1 - NEUTRAL_TOLERANCE) && suggested <= base * (1 + NEUTRAL_TOLERANCE);
+
+        // NEUTRAL veya UNKNOWN: durum fiyatı değiştirmemeli, yönlü kural aynen geçerli.
+        if (suggested < base * (1 - NEUTRAL_TOLERANCE) || suggested > base * (1 + NEUTRAL_TOLERANCE)) {
+            return false;
+        }
+        if (floor != null && suggested < floor * (1 - DOMINANCE_TOLERANCE)) {
+            return false;
+        }
+        return ceiling == null || suggested <= ceiling * (1 + DOMINANCE_TOLERANCE);
     }
 
     /** Güven düzeyi: yönteme, ilan sayısına ve kilometre aralığına bağlı. Modele sorulmaz. */
@@ -344,9 +400,14 @@ public final class PriceMarketAnalyzer {
 
     /** Aynı model (yazım farkları hariç birebir) ve aynı model yılı. "M5" ile "M5 CS" aynı sayılmaz. */
     public static boolean isExactMatch(Target t, CarCandidate c) {
-        String x = normalize(t.model());
-        String y = normalize(c.model());
-        return !x.isEmpty() && x.equals(y) && t.year() == c.year();
+        return isIdenticalModel(t.model(), c.model()) && t.year() == c.year();
+    }
+
+    /** Model adı büyük/küçük harf ve fazla boşluk dışında birebir aynı mı? */
+    static boolean isIdenticalModel(String a, String b) {
+        String x = normalize(a);
+        String y = normalize(b);
+        return !x.isEmpty() && x.equals(y);
     }
 
     /** Küçük değer = daha benzer. Aynı model, yakın yıl ve kilometre en çok ağırlığa sahip. */

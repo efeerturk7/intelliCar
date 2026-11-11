@@ -20,7 +20,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -29,7 +28,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -55,10 +53,14 @@ public abstract class AbstractIntegrationTest {
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:15-alpine");
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
             .withExposedPorts(6379);
-    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.0");
+    // Kafka container'ı bazen yoğun CI makinelerinde ilk denemede açılamıyor; 3 deneme hakkı verilir.
+    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.0").withStartupAttempts(3);
 
     static {
-        Startables.deepStart(Stream.of(POSTGRES, REDIS, KAFKA)).join();
+        // Sırayla başlatılır (paralel değil): yoğun CI makinelerinde Kafka'nın başlangıç betiği daha az çakışır.
+        POSTGRES.start();
+        REDIS.start();
+        KAFKA.start();
     }
 
     @DynamicPropertySource
