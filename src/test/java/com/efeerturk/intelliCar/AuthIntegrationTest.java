@@ -1,6 +1,5 @@
 package com.efeerturk.intelliCar;
 
-import com.efeerturk.intelliCar.enums.UserRole;
 import com.efeerturk.intelliCar.support.AbstractIntegrationTest;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
@@ -26,18 +25,33 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", UserRole.SELLER)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andExpect(jsonPath("$.email").value(email))
-                .andExpect(jsonPath("$.role").value("SELLER"));
+                .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void register_ignoresRoleSentByTheClient() throws Exception {
+        // Eski ön yüzler hâlâ role gönderebilir: yok sayılır, kimse kendini ADMIN yapamaz
+        String email = uniqueEmail();
+        String body = """
+                {"email":"%s","password":"secret123","firstName":"Test","lastName":"User","phone":"5551234567","role":"ADMIN"}
+                """.formatted(email);
+
+        mockMvc.perform(post(API + "/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role").value("USER"));
     }
 
     @Test
     void register_withExistingEmail_isRejected() throws Exception {
         String email = uniqueEmail();
-        String body = registerJson(email, "secret123", UserRole.BUYER);
+        String body = registerJson(email, "secret123");
 
         mockMvc.perform(post(API + "/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
@@ -50,7 +64,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         // Geçersiz e-posta ve 6 karakterden kısa şifre
         mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson("not-an-email", "123", UserRole.BUYER)))
+                        .content(registerJson("not-an-email", "123")))
                 .andExpect(status().isBadRequest());
     }
 
@@ -59,7 +73,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         String email = uniqueEmail();
         mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", UserRole.BUYER)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(post(API + "/auth/login")
@@ -75,7 +89,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         String email = uniqueEmail();
         mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", UserRole.BUYER)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(post(API + "/auth/login")
@@ -92,7 +106,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void protectedEndpoint_withToken_isAllowed() throws Exception {
-        TestUser user = registerUser(UserRole.SELLER);
+        TestUser user = registerUser();
 
         mockMvc.perform(get(API + "/car/my-cars").header("Authorization", bearer(user.token())))
                 .andExpect(status().isOk());
@@ -103,7 +117,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         String email = uniqueEmail();
         MvcResult registered = mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", UserRole.BUYER)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated())
                 .andReturn();
         String refreshToken = JsonPath.read(registered.getResponse().getContentAsString(), "$.refreshToken");
@@ -122,7 +136,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         String email = uniqueEmail();
         MvcResult registered = mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", UserRole.BUYER)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated())
                 .andReturn();
         String json = registered.getResponse().getContentAsString();

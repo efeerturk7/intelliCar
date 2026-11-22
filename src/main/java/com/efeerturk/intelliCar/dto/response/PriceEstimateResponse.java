@@ -13,7 +13,7 @@ import java.util.UUID;
  * method: baz fiyatın nasıl bulunduğunu gösterir (aynı model ve yıldaki ilanların kilometre karşılaştırması ya da benzer ilanlar).
  * mileageBasedPrice: yalnızca ilanlara ve kilometreye dayanan baz fiyat. suggestedPrice bundan, aracın durumuna
  * (hasar kaydı, değişen, boya) göre sınırlı bir farkla ayrılabilir.
- * aiAssisted=false ise Gemini kullanılamadı (veya tutarsız bir cevap verdi): fiyat yalnızca baz fiyat ve istatistiklerden gelir
+ * aiAssisted=false ise yapay zeka modeli kullanılamadı (veya tutarsız bir cevap verdi): fiyat yalnızca baz fiyat ve istatistiklerden gelir
  * ve aracın durumu fiyata yansıtılmamıştır.
  */
 public record PriceEstimateResponse(

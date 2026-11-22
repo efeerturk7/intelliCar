@@ -31,7 +31,7 @@ import java.util.Locale;
  * Düzeltme oranları (YEAR_RATE, KM_RATE_PER_10K) piyasa verisinden öğrenilmiş değil, varsayımdır. Yalnızca yönü ve kabaca
  * büyüklüğü verir; ilan sayısı arttıkça yerini veriden öğrenilen oranlara bırakabilir.
  *
- * Gemini bu baz fiyatı yalnızca aracın durumuna (hasar kaydı, değişen, boya) göre ayarlar. Önerisi decide() ile denetlenir;
+ * Model bu baz fiyatı yalnızca aracın durumuna (hasar kaydı, değişen, boya) göre ayarlar. Önerisi decide() ile denetlenir;
  * tutarsızsa baz fiyat kullanılır.
  */
 public final class PriceMarketAnalyzer {
@@ -54,7 +54,7 @@ public final class PriceMarketAnalyzer {
     private static final double BAND_SIMILAR = 0.12;
     private static final double BAND_CROSS_MODEL = 0.20;
 
-    // Gemini'nin baz fiyattan ne kadar uzaklaşabileceği (kilometre ve yıl zaten baz fiyatta var)
+    // Modelin baz fiyattan ne kadar uzaklaşabileceği (kilometre ve yıl zaten baz fiyatta var)
     private static final double SUGGESTED_MIN = 0.65;
     private static final double SUGGESTED_MAX = 1.10;
     private static final double RANGE_MIN = 0.55;
@@ -258,7 +258,7 @@ public final class PriceMarketAnalyzer {
 
     /**
      * Modelin önerisini denetler. Makulse onu, değilse baz fiyatı ve istatistiksel aralığı döner.
-     * Gemini'nin durum analizi (impact) kabul edilen fiyatın yönünü belirler (MILEAGE_BASED yönteminde).
+     * Modelin durum analizi (impact) kabul edilen fiyatın yönünü belirler (MILEAGE_BASED yönteminde).
      */
     public static Decision decide(Market market, Long min, Long suggested, Long max, ConditionImpact impact) {
         if (isPlausible(min, suggested, max, market, impact)) {

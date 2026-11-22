@@ -1,6 +1,5 @@
 package com.efeerturk.intelliCar.support;
 
-import com.efeerturk.intelliCar.enums.UserRole;
 import com.efeerturk.intelliCar.service.AiRecommendationService;
 import com.efeerturk.intelliCar.service.PriceEstimationService;
 import com.jayway.jsonpath.JsonPath;
@@ -43,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   ikinci bir context aynı consumer grubuna katılıp mesajları çalardı. Bu yüzden @MockitoBean'ler sadece burada tanımlıdır;
  *   alt sınıflarda @TestPropertySource, @MockitoBean vb. EKLEME.
  * - Testler birbirinden bağımsız olsun diye her test kendi rastgele kullanıcılarını ve ilanlarını oluşturur.
- * - Gemini'ye hiç gidilmez (AI servisleri mock). E-posta gönderilmez (JavaMailSender mock), gönderilen mailler doğrulanır.
+ * - Yapay zeka sağlayıcısına hiç gidilmez (AI servisleri mock). E-posta gönderilmez (JavaMailSender mock), gönderilen mailler doğrulanır.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -93,11 +92,11 @@ public abstract class AbstractIntegrationTest {
     }
 
     /** Rastgele e-postalı yeni bir kullanıcı kaydeder ve token'ını döner. */
-    protected TestUser registerUser(UserRole role) throws Exception {
+    protected TestUser registerUser() throws Exception {
         String email = "user-" + UUID.randomUUID() + "@test.local";
         MvcResult result = mockMvc.perform(post(API + "/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(registerJson(email, "secret123", role)))
+                        .content(registerJson(email, "secret123")))
                 .andExpect(status().isCreated())
                 .andReturn();
         String json = result.getResponse().getContentAsString();
@@ -106,10 +105,10 @@ public abstract class AbstractIntegrationTest {
         return new TestUser(UUID.fromString(id), email, token);
     }
 
-    protected static String registerJson(String email, String password, UserRole role) {
+    protected static String registerJson(String email, String password) {
         return """
-                {"email":"%s","password":"%s","firstName":"Test","lastName":"User","phone":"5551234567","role":"%s"}
-                """.formatted(email, password, role);
+                {"email":"%s","password":"%s","firstName":"Test","lastName":"User","phone":"5551234567"}
+                """.formatted(email, password);
     }
 
     protected static String carJson(String brand, String model, int year, int mileage, long price) {

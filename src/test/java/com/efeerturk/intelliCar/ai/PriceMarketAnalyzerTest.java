@@ -236,7 +236,7 @@ class PriceMarketAnalyzerTest {
         assertThat(PriceMarketAnalyzer.confidence(similarMany)).isEqualTo(PriceMarketAnalyzer.Level.MEDIUM);
     }
 
-    // ---------- Gemini önerisinin denetimi (hasar, değişen, boya) ----------
+    // ---------- Model önerisinin denetimi (hasar, değişen, boya) ----------
 
     private static PriceMarketAnalyzer.Market anchoredMarket() {
         return PriceMarketAnalyzer.analyze(M5_CS_2020_134K, threeM5Listings()); // baz fiyat 2.796.000

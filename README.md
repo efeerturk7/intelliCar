@@ -121,14 +121,14 @@ flowchart LR
     CO --> R
     CO -- e-mail --> SMTP([SMTP server / Mailpit])
     S -- prompts --> AI[Spring AI ChatClient]
-    AI <--> G([Google Gemini])
+    AI <--> G([Google Gemini API])
 ```
 
 ---
 
 ## AI Features
 
-Both AI features follow the same principle: **the database provides the facts, the model provides the judgment.** The application first selects real listings from PostgreSQL, then asks Gemini to analyze only that data. The model never decides which cars exist and never invents prices.
+Both AI features follow the same principle: **the database provides the facts, the model provides the judgment.** The application first selects real listings from PostgreSQL, then asks the language model to analyze only that data. The model never decides which cars exist and never invents prices.
 
 ### 1. Budget-based car recommendation
 
@@ -139,7 +139,7 @@ The user enters a budget and, optionally, free-text preferences and filters. The
 How it works:
 
 1. Active listings within the budget are loaded (up to 30, newest and lowest mileage first). Optional filters: fuel type, transmission, city. The user's own listings are excluded.
-2. Gemini ranks the listings and writes a score (0 to 100), a short reason, pros and cons for each pick.
+2. The model ranks the listings and writes a score (0 to 100), a short reason, pros and cons for each pick.
 3. The response is validated: ids that are not in the candidate list are dropped, duplicates are removed, and price, year and mileage are always taken from the database, never from the model.
 4. If no listing fits, the model is not called at all and a helpful message is returned.
 
@@ -201,8 +201,8 @@ How it works:
 
    **Direction rule.** A newer car with lower mileage is never priced below an older, higher-mileage listing of the same model, and an older car with higher mileage is never priced above a newer, lower-mileage one. In order: newer + low mileage is the most expensive, newer + high mileage and older + low mileage are in the middle, older + high mileage is the cheapest. Example: for an *Audi A4 2021, 0 km*, a listing of *Audi A4 2020, 119,500 km, 1,760,000 TL* is a lower bound. The adjustment rates (5% per model year, 1% per 10,000 km, each capped at 30%) are assumptions, not values learned from market data.
 
-3. **Condition analysis (AI).** Gemini reads the description of the user's car and the descriptions of the comparable listings. It looks for the damage record, replaced parts and painted parts, compares the car's condition with the comparables and adjusts the base price. A clean car (no damage record, no paint, no replaced parts) is priced slightly higher, a car with a damage record or painted or replaced parts is priced lower. It also reports the effect as `conditionImpact`: `POSITIVE`, `NEUTRAL`, `NEGATIVE` or `UNKNOWN` (no condition information in the description).
-4. **Validation.** The suggestion is checked in code before it is returned. The model may move the price at most 35% down or 10% up (the range may not be wider than 1.4x), and the direction must match the condition analysis: a worse condition cannot be priced above the base price, a better condition cannot be priced below it (or below a newer-and-lower-mileage-listing bound), and without condition information the price must stay within 5% of the base price and inside the direction bounds. If the answer is inconsistent, or Gemini is unavailable, the base price and its statistical range are returned (`aiAssisted: false`) and the response says that the condition was not reflected.
+3. **Condition analysis (AI).** The model reads the description of the user's car and the descriptions of the comparable listings. It looks for the damage record, replaced parts and painted parts, compares the car's condition with the comparables and adjusts the base price. A clean car (no damage record, no paint, no replaced parts) is priced slightly higher, a car with a damage record or painted or replaced parts is priced lower. It also reports the effect as `conditionImpact`: `POSITIVE`, `NEUTRAL`, `NEGATIVE` or `UNKNOWN` (no condition information in the description).
+4. **Validation.** The suggestion is checked in code before it is returned. The model may move the price at most 35% down or 10% up (the range may not be wider than 1.4x), and the direction must match the condition analysis: a worse condition cannot be priced above the base price, a better condition cannot be priced below it (or below a newer-and-lower-mileage-listing bound), and without condition information the price must stay within 5% of the base price and inside the direction bounds. If the answer is inconsistent, or the AI provider is unavailable, the base price and its statistical range are returned (`aiAssisted: false`) and the response says that the condition was not reflected.
 5. If there is no listing of that brand, the API responds with `400`, because there is nothing to compare against.
 
 The `confidence` field (`LOW`, `MEDIUM`, `HIGH`) is calculated in code and is never asked from the model:
@@ -269,7 +269,7 @@ Example response (shortened):
 - **Prompt injection resistance.** User preferences and listing descriptions are sent as data, and the prompt tells the model not to follow instructions inside them.
 - **Authenticated only.** Every AI call costs quota, so the endpoints require a valid JWT.
 - **Rate limited.** Each user is limited per minute and per day, and beyond the limit the API returns `429`. See [AI Rate Limiting](#ai-rate-limiting).
-- **Graceful failure.** If Gemini is unavailable, the recommendation endpoint returns `503`, and the price endpoint falls back to the statistical range.
+- **Graceful failure.** If the AI provider is unavailable, the recommendation endpoint returns `503`, and the price endpoint falls back to the statistical range.
 - **Low temperature** (0.2) and a short retry policy keep answers consistent and failures fast.
 
 ---
@@ -452,13 +452,13 @@ Both AI endpoints are limited per user. When the limit is exceeded they return `
 
 - JDK 21
 - Docker and Docker Compose
-- A Google Gemini API key (free to create at [Google AI Studio](https://aistudio.google.com/apikey))
+- A Gemini API key (free to create at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))
 - (Optional) Maven, the included `./mvnw` wrapper is enough
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/intelliCar.git
+git clone https://github.com/efeerturk7/intelliCar.git
 cd intelliCar
 ```
 
@@ -568,7 +568,7 @@ Other settings live in `src/main/resources/application.properties`:
 |---|---|---|
 | `intellicar.security.jwt.access-expiration` | `900000` (15 min) | Access token lifetime in ms |
 | `intellicar.security.jwt.refresh-expiration` | `604800000` (7 days) | Refresh token lifetime in ms |
-| `spring.ai.google.genai.chat.temperature` | `0.2` | Lower values give more consistent answers |
+| `spring.ai.openai.chat.temperature` | `0.2` | Lower values give more consistent answers |
 | `spring.kafka.bootstrap-servers` | `localhost:9092` | Kafka address (`kafka:29092` inside Docker) |
 | `spring.data.redis.host` / `port` | `localhost` / `6379` | Redis address |
 | `intellicar.ai.rate-limit.per-minute` | `5` | AI requests per user per minute (`0` disables this limit) |
@@ -605,7 +605,7 @@ The tests need **Docker** but nothing else: they start their own PostgreSQL, Red
 How the integration tests work:
 
 - The three containers start once and are shared by all test classes, and all classes share one Spring context. Each test creates its own random users and listings, so tests do not depend on each other.
-- Gemini is never called: the two AI services are replaced with mocks. E-mails are not sent: `JavaMailSender` is a mock and the tests wait for the mail that the Kafka consumer sends.
+- The AI provider is never called: the two AI services are replaced with mocks. E-mails are not sent: `JavaMailSender` is a mock and the tests wait for the mail that the Kafka consumer sends.
 - Asynchronous steps (Kafka consumers) are awaited with Awaitility instead of fixed sleeps.
 - Test settings live in `src/test/resources/application-test.properties` (test profile).
 
@@ -623,12 +623,12 @@ No secrets are needed in the repository settings.
 ## Troubleshooting
 
 - **The app cannot connect to PostgreSQL or fails with a Hibernate dialect error.** The database is not reachable. Check `docker compose ps`. PostgreSQL only applies `POSTGRES_PASSWORD` when its volume is first created, so after changing the password in `.env` run `docker compose down -v` and start again (this deletes the data).
-- **Gemini returns "model not found" (404).** Model names are retired over time. Pick a current model in Google AI Studio and set `GEMINI_MODEL` in `.env`.
+- **The AI call returns 404.** The model name is outdated or not available to your key: copy a current model name from Google AI Studio into `GEMINI_MODEL` in `.env`.
 - **Tests fail with "Could not find a valid Docker environment".** Start Docker Desktop (or the Docker daemon) and run the tests again.
 - **The app does not start and mentions a missing placeholder.** `JWT_SECRET` or `GEMINI_API_KEY` is not defined in `.env`, or the app was not started from the project root.
 - **AI endpoints return 429.** The per-user rate limit was reached. Wait for the number of seconds in the `Retry-After` header or raise the limits in `application.properties`.
 - **No e-mails arrive.** Check that Mailpit is running (`docker compose ps`) and open <http://localhost:8025>. For a real SMTP server check the `MAIL_*` values in `.env`. Failed sends are retried 3 times and then logged.
-- **AI endpoints return 503.** Gemini is unavailable or the quota is exhausted. Try again later.
+- **AI endpoints return 503.** The AI provider is unavailable, the key is invalid or the free quota is exhausted (the Gemini free tier has a small daily quota per model; set another model in `GEMINI_MODEL`). Try again later.
 
 ---
 

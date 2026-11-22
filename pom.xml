@@ -79,7 +79,7 @@
 			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
-		<!-- SPRING AI: Google Gemini sohbet modeli (Gemini Developer API, API anahtarı ile) -->
+		<!-- SPRING AI: Google Gemini sohbet modeli -->
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-model-google-genai</artifactId>

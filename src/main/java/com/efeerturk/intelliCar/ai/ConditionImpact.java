@@ -4,7 +4,7 @@ import java.util.Locale;
 
 /**
  * Satılacak aracın durumunun (hasar kaydı, değişen, boya) benzer ilanlara göre fiyata etkisi.
- * Gemini bunu araç ve ilan açıklamalarını okuyarak belirler; kod, fiyatın bu yönle tutarlı olup olmadığını denetler.
+ * Model bunu araç ve ilan açıklamalarını okuyarak belirler; kod, fiyatın bu yönle tutarlı olup olmadığını denetler.
  */
 public enum ConditionImpact {
     /** Araç benzerlerinden daha iyi durumda (örn. boyasız, değişensiz, hasar kaydı yok): fiyat artmalı. */

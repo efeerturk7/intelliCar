@@ -1,6 +1,5 @@
 package com.efeerturk.intelliCar;
 
-import com.efeerturk.intelliCar.enums.UserRole;
 import com.efeerturk.intelliCar.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * AI endpoint'lerinin kullanıcı başına rate limit'i, gerçek Redis ile.
- * Test profilinde limit dakikada 3'tür (application-test.properties). AI servisleri mock olduğu için Gemini'ye istek gitmez.
+ * Test profilinde limit dakikada 3'tür (application-test.properties). AI servisleri mock olduğu için yapay zeka sağlayıcısına istek gitmez.
  */
 class AiRateLimitIntegrationTest extends AbstractIntegrationTest {
 
@@ -47,7 +46,7 @@ class AiRateLimitIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void requestsOverTheLimit_getTooManyRequestsWithRetryAfter() throws Exception {
-        TestUser user = registerUser(UserRole.BUYER);
+        TestUser user = registerUser();
 
         for (int i = 0; i < 3; i++) {
             callRecommend(user, 200);
@@ -67,7 +66,7 @@ class AiRateLimitIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void bothAiEndpoints_shareTheSameQuota() throws Exception {
-        TestUser user = registerUser(UserRole.BUYER);
+        TestUser user = registerUser();
 
         callRecommend(user, 200);
         callPriceEstimate(user, 200);
@@ -79,8 +78,8 @@ class AiRateLimitIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void limitIsPerUser() throws Exception {
-        TestUser heavyUser = registerUser(UserRole.BUYER);
-        TestUser otherUser = registerUser(UserRole.BUYER);
+        TestUser heavyUser = registerUser();
+        TestUser otherUser = registerUser();
 
         for (int i = 0; i < 3; i++) {
             callRecommend(heavyUser, 200);
@@ -92,7 +91,7 @@ class AiRateLimitIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void counterIsStoredInRedisWithExpiry() throws Exception {
-        TestUser user = registerUser(UserRole.BUYER);
+        TestUser user = registerUser();
 
         callRecommend(user, 200);
         callRecommend(user, 200);

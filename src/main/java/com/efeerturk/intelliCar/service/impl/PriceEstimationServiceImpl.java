@@ -41,9 +41,9 @@ import java.util.stream.IntStream;
  *  1) Aynı markadaki (aktif veya satılmış) gerçek ilanlar çekilir, kullanıcının kendi ilanları hariç.
  *  2) PriceMarketAnalyzer baz fiyatı hesaplar (yapay zeka yok): aynı model ve yıldaki ilanlar varsa kilometreye göre
  *     karşılaştırarak, yoksa en benzer ilanların fiyat dağılımından.
- *  3) Gemini, aracın ve ilanların açıklamalarındaki hasar kaydı, değişen ve boya bilgisini karşılaştırıp baz fiyatı
+ *  3) Model, aracın ve ilanların açıklamalarındaki hasar kaydı, değişen ve boya bilgisini karşılaştırıp baz fiyatı
  *     bu duruma göre ayarlar ve durumun fiyata etkisini (conditionImpact) bildirir.
- *  4) Öneri denetlenir (PriceMarketAnalyzer.decide). Gemini çökerse veya tutarsız bir değer verirse baz fiyat kullanılır.
+ *  4) Öneri denetlenir (PriceMarketAnalyzer.decide). Model çökerse veya tutarsız bir değer verirse baz fiyat kullanılır.
  */
 @Service
 @Slf4j
@@ -252,8 +252,8 @@ public class PriceEstimationServiceImpl implements PriceEstimationService {
                     .call()
                     .entity(AiPriceResult.class);
         } catch (Exception ex) {
-            // Gemini çökse bile istatistiksel tahmin hâlâ değerli: hata fırlatmak yerine yedeğe dönülür.
-            log.error("Gemini fiyat isteği başarısız oldu, istatistiksel aralık kullanılacak", ex);
+            // Model çökse bile istatistiksel tahmin hâlâ değerli: hata fırlatmak yerine yedeğe dönülür.
+            log.error("AI fiyat isteği başarısız oldu, istatistiksel aralık kullanılacak", ex);
             return null;
         }
     }

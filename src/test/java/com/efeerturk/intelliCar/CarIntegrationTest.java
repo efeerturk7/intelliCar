@@ -1,7 +1,6 @@
 package com.efeerturk.intelliCar;
 
 import com.efeerturk.intelliCar.enums.CarStatus;
-import com.efeerturk.intelliCar.enums.UserRole;
 import com.efeerturk.intelliCar.model.Car;
 import com.efeerturk.intelliCar.repository.CarRepository;
 import com.efeerturk.intelliCar.support.AbstractIntegrationTest;
@@ -28,7 +27,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createCar_asLoggedInUser_returnsActiveListing() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
 
         mockMvc.perform(post(API + "/car")
                         .header("Authorization", bearer(seller.token()))
@@ -51,7 +50,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createCar_withInvalidBody_isRejected() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
 
         // Boş marka ve negatif fiyat
         mockMvc.perform(post(API + "/car")
@@ -63,7 +62,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void listCars_isPublicAndFiltersByBrand() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         String brand = "Brand" + UUID.randomUUID().toString().substring(0, 8);
         createCar(seller, brand, "A", 500_000);
         createCar(seller, brand, "B", 600_000);
@@ -78,7 +77,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void getCarDetail_isPublic_andStillWorksWhenServedFromRedisCache() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         UUID carId = createCar(seller, "Honda", "Civic", 800_000);
 
         // 1. istek veritabanından gelir ve Redis'e yazılır, 2. istek Redis'ten okunur.
@@ -100,7 +99,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void viewingCar_incrementsViewCountThroughKafka() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         UUID carId = createCar(seller, "Renault", "Clio", 400_000);
 
         mockMvc.perform(get(API + "/car/" + carId)).andExpect(status().isOk());
@@ -115,7 +114,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void updateCar_byOwner_changesPrice() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         UUID carId = createCar(seller, "Fiat", "Egea", 450_000);
 
         mockMvc.perform(put(API + "/car/" + carId)
@@ -130,8 +129,8 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void updateCar_byAnotherUser_isRejected() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser stranger = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
+        TestUser stranger = registerUser();
         UUID carId = createCar(seller, "Fiat", "Linea", 300_000);
 
         mockMvc.perform(put(API + "/car/" + carId)
@@ -145,7 +144,7 @@ class CarIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void deleteCar_isSoftDelete() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         UUID carId = createCar(seller, "Opel", "Astra", 350_000);
 
         mockMvc.perform(delete(API + "/car/" + carId).header("Authorization", bearer(seller.token())))

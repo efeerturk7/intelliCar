@@ -1,7 +1,6 @@
 package com.efeerturk.intelliCar;
 
 import com.efeerturk.intelliCar.enums.OfferStatus;
-import com.efeerturk.intelliCar.enums.UserRole;
 import com.efeerturk.intelliCar.repository.OfferRepository;
 import com.efeerturk.intelliCar.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
@@ -31,8 +30,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void newOffer_isCreatedAsPending_andSellerIsEmailed() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Toyota", "Corolla", 1_100_000);
 
         mockMvc.perform(post(API + "/offer")
@@ -50,8 +49,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void acceptingOffer_emailsBuyer() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Honda", "Civic", 900_000);
         UUID offerId = createOffer(buyer, carId, 850_000);
 
@@ -68,8 +67,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void rejectingOffer_emailsBuyer() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Ford", "Focus", 700_000);
         UUID offerId = createOffer(buyer, carId, 500_000);
 
@@ -85,7 +84,7 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void offerOnOwnCar_isRejected() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
+        TestUser seller = registerUser();
         UUID carId = createCar(seller, "Kia", "Ceed", 600_000);
 
         mockMvc.perform(post(API + "/offer")
@@ -97,8 +96,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void secondPendingOfferFromSameBuyer_isRejected() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Hyundai", "i20", 500_000);
         createOffer(buyer, carId, 450_000);
 
@@ -111,8 +110,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void onlyTheSeller_canRespondToOffer() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Skoda", "Octavia", 800_000);
         UUID offerId = createOffer(buyer, carId, 750_000);
 
@@ -126,8 +125,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void offersOfACar_areVisibleOnlyToItsOwner() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Seat", "Leon", 650_000);
         createOffer(buyer, carId, 600_000);
 
@@ -141,8 +140,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void myOffers_listsOffersOfTheBuyer() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Peugeot", "208", 550_000);
         UUID offerId = createOffer(buyer, carId, 500_000);
 
@@ -154,8 +153,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void whenCarIsSold_pendingOffersExpireThroughKafka() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Dacia", "Duster", 750_000);
         UUID offerId = createOffer(buyer, carId, 700_000);
 
@@ -168,8 +167,8 @@ class OfferFlowIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void offerOnSoldCar_isRejected() throws Exception {
-        TestUser seller = registerUser(UserRole.SELLER);
-        TestUser buyer = registerUser(UserRole.BUYER);
+        TestUser seller = registerUser();
+        TestUser buyer = registerUser();
         UUID carId = createCar(seller, "Nissan", "Qashqai", 1_000_000);
         updateCar(seller, carId, 1_000_000, "SOLD");
 

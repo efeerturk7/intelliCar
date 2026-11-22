@@ -4,7 +4,11 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-
+/**
+ * Spring AI yapılandırması.
+ * Spring AI, starter sayesinde otomatik olarak bir ChatClient.Builder sağlar;
+ * burada tüm AI özelliklerinin (bütçe önerisi, fiyat tahmini) ortak kullanacağı temel ChatClient'ı kuruyoruz.
+ */
 @Configuration
 public class AiConfig {
 

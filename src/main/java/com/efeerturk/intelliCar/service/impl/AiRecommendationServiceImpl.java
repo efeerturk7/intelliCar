@@ -184,7 +184,7 @@ public class AiRecommendationServiceImpl implements AiRecommendationService {
                     .call()
                     .entity(AiRecommendationResult.class);
         } catch (Exception ex) {
-            log.error("Gemini isteği başarısız oldu", ex);
+            log.error("AI isteği başarısız oldu", ex);
             throw new AiServiceException(new ErrorMessage(MessageType.AI_SERVICE_UNAVAILABLE, null));
         }
     }

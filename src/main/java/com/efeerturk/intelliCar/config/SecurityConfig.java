@@ -1,6 +1,7 @@
 package com.efeerturk.intelliCar.config;
 
 import com.efeerturk.intelliCar.jwt.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -54,6 +55,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/intelliCar/api/v1/car",
                                 "/intelliCar/api/v1/car/**").permitAll()
+
+                        // Spring, hata oluşunca isteği /error'a yönlendirir. Burası korumalı olursa her hata (500, 415, 404...)
+                        // 401 gibi görünür ve gerçek hata kaybolur.
+                        .requestMatchers("/error").permitAll()
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 
                         // Yüklenen ilan görselleri herkese açık (resim etiketi token gönderemez).
                         .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
