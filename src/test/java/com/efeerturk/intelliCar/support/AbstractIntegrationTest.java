@@ -18,7 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.kafka.KafkaContainer;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -52,9 +52,9 @@ public abstract class AbstractIntegrationTest {
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:15-alpine");
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
             .withExposedPorts(6379);
-    // Kafka container'ı yoğun CI makinelerinde yavaş açılıyor (varsayılan bekleme süresi yetmeyebiliyor):
-    // 3 deneme hakkı, her deneme için 5 dakika bekleme ve küçük bir heap verilir.
-    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.0")
+    // apache/kafka imajı GitHub Actions'ta 'advertised.listeners 0.0.0.0' hatasıyla açılmıyordu; Testcontainers'ın
+    // dokümante ettiği confluentinc/cp-kafka imajı kullanılır. Yavaş makineler için 3 deneme, 5 dakika bekleme ve küçük heap verilir.
+    static final ConfluentKafkaContainer KAFKA = new ConfluentKafkaContainer("confluentinc/cp-kafka:7.4.0")
             .withEnv("KAFKA_HEAP_OPTS", "-Xmx512m -Xms256m")
             .withStartupAttempts(3)
             .withStartupTimeout(Duration.ofMinutes(5));
