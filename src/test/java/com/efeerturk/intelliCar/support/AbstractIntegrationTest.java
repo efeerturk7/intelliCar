@@ -52,8 +52,12 @@ public abstract class AbstractIntegrationTest {
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:15-alpine");
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
             .withExposedPorts(6379);
-    // Kafka container'ı bazen yoğun CI makinelerinde ilk denemede açılamıyor; 3 deneme hakkı verilir.
-    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.0").withStartupAttempts(3);
+    // Kafka container'ı yoğun CI makinelerinde yavaş açılıyor (varsayılan bekleme süresi yetmeyebiliyor):
+    // 3 deneme hakkı, her deneme için 5 dakika bekleme ve küçük bir heap verilir.
+    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:3.9.0")
+            .withEnv("KAFKA_HEAP_OPTS", "-Xmx512m -Xms256m")
+            .withStartupAttempts(3)
+            .withStartupTimeout(Duration.ofMinutes(5));
 
     static {
         // Sırayla başlatılır (paralel değil): yoğun CI makinelerinde Kafka'nın başlangıç betiği daha az çakışır.
